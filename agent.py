@@ -46,6 +46,7 @@ Struktur JSON harus persis seperti ini:
 """
 
 DEFAULT_POINTS = 1
+MAX_AI_ATTEMPTS = 2
 
 def call_owl_alpha(user_prompt):
     """Memanggil model Owl Alpha via OpenRouter"""
@@ -132,6 +133,37 @@ def extract_requested_points(user_prompt):
 
     return point_config
 
+def extract_requested_counts(user_prompt):
+    """Mengambil jumlah soal per tipe dari prompt user bila disebutkan eksplisit."""
+    lower_prompt = user_prompt.lower()
+    count_config = {
+        "pg": None,
+        "esai": None
+    }
+
+    pg_patterns = [
+        r'(\d+)\s*(?:soal\s*)?(?:pilihan\s*ganda|pg)\b',
+        r'(?:pilihan\s*ganda|pg)\s*(?:sebanyak\s*)?(\d+)\s*soal\b',
+    ]
+    esai_patterns = [
+        r'(\d+)\s*(?:soal\s*)?(?:esai|essay)\b',
+        r'(?:esai|essay)\s*(?:sebanyak\s*)?(\d+)\s*soal\b',
+    ]
+
+    for pattern in pg_patterns:
+        match = re.search(pattern, lower_prompt)
+        if match:
+            count_config["pg"] = max(1, int(match.group(1)))
+            break
+
+    for pattern in esai_patterns:
+        match = re.search(pattern, lower_prompt)
+        if match:
+            count_config["esai"] = max(1, int(match.group(1)))
+            break
+
+    return count_config
+
 def normalize_whitespace(text):
     return re.sub(r'\s+', ' ', str(text or '')).strip()
 
@@ -204,12 +236,27 @@ def format_points_summary(point_config):
         return f"{point_config['pg']} poin per soal"
     return f"PG {point_config['pg']} poin, Esai {point_config['esai']} poin"
 
-def build_ai_prompt(user_input, point_config):
+def format_counts_summary(count_config):
+    parts = []
+    if count_config["pg"] is not None:
+        parts.append(f"{count_config['pg']} PG")
+    if count_config["esai"] is not None:
+        parts.append(f"{count_config['esai']} esai")
+    return ", ".join(parts)
+
+def build_ai_prompt(user_input, point_config, count_config):
+    count_instructions = ""
+    if count_config["pg"] is not None:
+        count_instructions += f"- Jumlah soal PG harus tepat {count_config['pg']} butir.\n"
+    if count_config["esai"] is not None:
+        count_instructions += f"- Jumlah soal esai harus tepat {count_config['esai']} butir.\n"
+
     return (
         f"{user_input.strip()}\n\n"
         f"Instruksi sistem tambahan:\n"
         f"- Judul wajib singkat dan sederhana, format utamanya: Mata Pelajaran - Kelas.\n"
         f"- Setiap soal wajib memiliki properti 'poin'.\n"
+        f"{count_instructions}"
         f"- Soal PG harus memakai {point_config['pg']} poin per butir.\n"
         f"- Soal esai harus memakai {point_config['esai']} poin per butir.\n"
         f"- Jika output dibuat untuk Google Form, siapkan soal agar cocok dijadikan quiz.\n"
@@ -233,25 +280,62 @@ def normalize_questions(questions, point_config):
         normalized_questions.append(normalized_question)
     return normalized_questions
 
+def validate_question_counts(questions, count_config):
+    actual_pg = sum(1 for question in questions if question["tipe"] == "pg")
+    actual_esai = sum(1 for question in questions if question["tipe"] == "esai")
+
+    if count_config["pg"] is not None and actual_pg != count_config["pg"]:
+        raise ValueError(
+            f"Jumlah soal PG tidak sesuai. Diminta {count_config['pg']}, tetapi AI membuat {actual_pg}."
+        )
+    if count_config["esai"] is not None and actual_esai != count_config["esai"]:
+        raise ValueError(
+            f"Jumlah soal esai tidak sesuai. Diminta {count_config['esai']}, tetapi AI membuat {actual_esai}."
+        )
+
+def generate_quiz_data(user_input, point_config, count_config):
+    last_error = None
+    current_prompt = user_input
+
+    for attempt in range(MAX_AI_ATTEMPTS):
+        ai_response = call_owl_alpha(build_ai_prompt(current_prompt, point_config, count_config))
+        cleaned_json_text = extract_json(ai_response)
+        quiz_data = json.loads(cleaned_json_text)
+        questions = normalize_questions(quiz_data['soal'], point_config)
+
+        try:
+            validate_question_counts(questions, count_config)
+            return quiz_data, questions
+        except ValueError as exc:
+            last_error = exc
+            if attempt == MAX_AI_ATTEMPTS - 1:
+                raise
+            current_prompt = (
+                f"{user_input.strip()}\n\n"
+                f"Perbaiki output sebelumnya. {exc} "
+                f"Pastikan jumlah soal persis sesuai permintaan."
+            )
+
+    if last_error:
+        raise last_error
+
 def generate_quiz_from_prompt(user_input, output_mode=None, google_creds=None):
     """Menjalankan alur utama pembuatan soal agar bisa dipakai CLI dan Telegram."""
     point_config = extract_requested_points(user_input)
+    count_config = extract_requested_counts(user_input)
     mode = output_mode or "form"
     if output_mode is None and ("word" in user_input.lower() or "docx" in user_input.lower()):
         mode = "word"
 
-    ai_response = call_owl_alpha(build_ai_prompt(user_input, point_config))
-    cleaned_json_text = extract_json(ai_response)
-    quiz_data = json.loads(cleaned_json_text)
-
+    quiz_data, questions = generate_quiz_data(user_input, point_config, count_config)
     title = build_form_title(user_input, quiz_data.get('judul', 'Quiz'))
-    questions = normalize_questions(quiz_data['soal'], point_config)
     result = {
         'title': title,
         'questions': questions,
         'mode': mode,
         'point_config': point_config,
-        'points_summary': format_points_summary(point_config)
+        'points_summary': format_points_summary(point_config),
+        'counts_summary': format_counts_summary(count_config)
     }
 
     if mode == "form":

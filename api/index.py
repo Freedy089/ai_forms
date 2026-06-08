@@ -186,6 +186,19 @@ HTML_PAGE = """<!doctype html>
       resultBox.classList.remove('hidden');
     }
 
+    async function readResponsePayload(response) {
+      const contentType = response.headers.get('content-type') || '';
+      const rawText = await response.text();
+      if (contentType.includes('application/json')) {
+        return JSON.parse(rawText);
+      }
+      try {
+        return JSON.parse(rawText);
+      } catch (error) {
+        return { error: rawText || 'Terjadi kesalahan server.' };
+      }
+    }
+
     function applyAuthState(payload) {
       isAuthenticated = Boolean(payload && payload.authenticated);
       submitButton.disabled = !isAuthenticated;
@@ -247,7 +260,7 @@ HTML_PAGE = """<!doctype html>
         });
 
         if (response.status === 401) {
-          const payload = await response.json();
+          const payload = await readResponsePayload(response);
           if (payload.auth_url) {
             window.location.href = payload.auth_url;
             return;
@@ -269,7 +282,7 @@ HTML_PAGE = """<!doctype html>
           return;
         }
 
-        const payload = await response.json();
+        const payload = await readResponsePayload(response);
         if (!response.ok) {
           throw new Error(payload.error || 'Terjadi kesalahan server.');
         }
