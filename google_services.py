@@ -78,9 +78,9 @@ def build_grading(question):
 
     return grading
 
-def create_google_form(title, questions_list):
+def create_google_form(title, questions_list, creds=None):
     """Membuat Google Form quiz berdasarkan campuran soal PG dan Esai dari AI."""
-    creds = get_google_creds()
+    creds = creds or get_google_creds()
     form_service = build('forms', 'v1', credentials=creds)
     
     form_body = {'info': {'title': title}}

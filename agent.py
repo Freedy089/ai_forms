@@ -51,6 +51,11 @@ def call_owl_alpha(user_prompt):
     """Memanggil model Owl Alpha via OpenRouter"""
     if not config.OPENROUTER_API_KEY:
         raise ValueError("OPENROUTER_API_KEY belum diatur.")
+    if not config.OPENROUTER_API_KEY.startswith("sk-or-v1-"):
+        raise ValueError(
+            "OPENROUTER_API_KEY terbaca tetapi formatnya tidak valid. "
+            "Pastikan value di Vercel adalah API key mentah tanpa kutip."
+        )
 
     headers = {
         "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
@@ -191,7 +196,7 @@ def normalize_questions(questions, points_per_question):
         normalized_questions.append(normalized_question)
     return normalized_questions
 
-def generate_quiz_from_prompt(user_input, output_mode=None):
+def generate_quiz_from_prompt(user_input, output_mode=None, google_creds=None):
     """Menjalankan alur utama pembuatan soal agar bisa dipakai CLI dan Telegram."""
     points_per_question = extract_requested_points(user_input)
     mode = output_mode or "form"
@@ -212,7 +217,7 @@ def generate_quiz_from_prompt(user_input, output_mode=None):
     }
 
     if mode == "form":
-        result['form_links'] = create_google_form(title, questions)
+        result['form_links'] = create_google_form(title, questions, creds=google_creds)
     else:
         result['file_path'] = generate_docx_file(title, questions)
 

@@ -14,24 +14,41 @@ Project ini sekarang punya 3 jalur penggunaan:
    - `OPENROUTER_API_KEY`
    - `MODEL_NAME` (opsional, default: `openrouter/owl-alpha`)
    - `GOOGLE_CLIENT_SECRET_JSON`
-   - `GOOGLE_TOKEN_JSON`
+   - `APP_BASE_URL`
+   - `APP_SECRET`
 4. Deploy.
 
 Setelah deploy, halaman web tersedia di route `/` dan endpoint generate ada di `/api/generate`.
 
-## Format environment variable Google
+## OAuth Google untuk website
 
-`GOOGLE_CLIENT_SECRET_JSON` harus berisi isi JSON dari `credentials.json`.
+Untuk website, user harus login dengan akun Google masing-masing. Form akan dibuat di akun Google user yang sedang login.
 
-`GOOGLE_TOKEN_JSON` harus berisi isi JSON dari `token.json`.
+Karena itu, `GOOGLE_CLIENT_SECRET_JSON` harus berisi isi penuh file OAuth client type `web`, bukan token user global.
 
-Untuk mendapatkan `token.json`, jalankan dulu aplikasi ini secara lokal sekali dengan:
+Langkah setup di Google Cloud Console:
+
+1. Buat OAuth Client ID type `Web application`.
+2. Tambahkan Authorized Redirect URI:
 
 ```bash
-python3 agent.py
+https://domain-website-anda/auth/google/callback
 ```
 
-Setelah login Google berhasil, salin isi `token.json` ke environment variable `GOOGLE_TOKEN_JSON`.
+3. Simpan isi file JSON client tersebut ke environment variable `GOOGLE_CLIENT_SECRET_JSON`.
+4. Isi `APP_BASE_URL` dengan domain website Anda, misalnya:
+
+```bash
+https://ai-forms.vercel.app
+```
+
+5. Isi `APP_SECRET` dengan string acak panjang untuk signing cookie sesi.
+
+Catatan penting:
+
+- Redirect URI harus sama persis dengan yang didaftarkan di Google.
+- Website tidak lagi memakai `token.json` global untuk flow web.
+- `GOOGLE_TOKEN_JSON` masih bisa dipakai untuk mode lokal CLI jika Anda ingin mempertahankannya.
 
 ## Catatan Netlify
 
