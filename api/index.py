@@ -348,7 +348,13 @@ def get_google_client_config():
             "GOOGLE_CLIENT_SECRET_JSON belum diatur. Isi dengan JSON OAuth client type web "
             "yang memiliki redirect URI untuk website ini."
         )
-    client_config = json.loads(config.GOOGLE_CLIENT_SECRET_JSON)
+    try:
+        client_config = json.loads(config.GOOGLE_CLIENT_SECRET_JSON)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            "GOOGLE_CLIENT_SECRET_JSON bukan JSON yang valid. "
+            "Isi env ini harus berupa isi penuh file OAuth client JSON type web dari Google Cloud."
+        ) from exc
     if "web" not in client_config:
         raise ValueError("GOOGLE_CLIENT_SECRET_JSON harus berisi OAuth client type 'web'.")
     return client_config
