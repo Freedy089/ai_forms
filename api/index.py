@@ -199,6 +199,18 @@ HTML_PAGE = """<!doctype html>
       authNote.className = 'status ' + (isAuthenticated ? '' : 'warn');
     }
 
+    function showAuthQueryMessage() {
+      const params = new URLSearchParams(window.location.search);
+      const authStatus = params.get('auth');
+      if (authStatus === 'state-invalid') {
+        setStatus('Sesi login Google kedaluwarsa atau tidak cocok. Silakan hubungkan Google lagi.', 'warn');
+      } else if (authStatus === 'success') {
+        setStatus('Akun Google berhasil terhubung.');
+      } else if (authStatus === 'logout') {
+        setStatus('Sesi Google sudah diputus.');
+      }
+    }
+
     async function loadSession() {
       try {
         const response = await fetch('/api/session');
@@ -279,6 +291,7 @@ HTML_PAGE = """<!doctype html>
       }
     });
 
+    showAuthQueryMessage();
     loadSession();
   </script>
 </body>
@@ -313,11 +326,12 @@ def unsign_value(signed_value):
 
 def encode_payload(payload):
     serialized = json_dumps_compact(payload).encode("utf-8")
-    return base64.urlsafe_b64encode(serialized).decode("utf-8")
+    return base64.urlsafe_b64encode(serialized).decode("utf-8").rstrip("=")
 
 
 def decode_payload(value):
-    decoded = base64.urlsafe_b64decode(value.encode("utf-8"))
+    padding = "=" * (-len(value) % 4)
+    decoded = base64.urlsafe_b64decode((value + padding).encode("utf-8"))
     return json.loads(decoded.decode("utf-8"))
 
 
@@ -483,7 +497,12 @@ class handler(BaseHTTPRequestHandler):
         query = self._query_params()
         returned_state = (query.get("state") or [""])[0]
         if not stored_state or stored_state != returned_state:
-            self._send_json(400, {"error": "State OAuth tidak valid atau kedaluwarsa."})
+            self._redirect(
+                "/?auth=state-invalid",
+                extra_headers={
+                    "Set-Cookie": self._clear_cookie_header(STATE_COOKIE_NAME)
+                }
+            )
             return
 
         flow = build_flow(self.headers, state=stored_state)
