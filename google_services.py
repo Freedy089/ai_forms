@@ -83,7 +83,13 @@ def create_google_form(title, questions_list, creds=None):
     creds = creds or get_google_creds()
     form_service = build('forms', 'v1', credentials=creds)
     
-    form_body = {'info': {'title': title}}
+    clean_title = (title or "").strip() or "Quiz"
+    form_body = {
+        'info': {
+            'title': clean_title,
+            'documentTitle': clean_title
+        }
+    }
     form = form_service.forms().create(body=form_body).execute()
     form_id = form['formId']
     

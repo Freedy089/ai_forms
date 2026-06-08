@@ -4,6 +4,7 @@ import hmac
 import json
 import os
 import secrets
+import zipfile
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -244,15 +245,15 @@ HTML_PAGE = """<!doctype html>
 
         if (mode === 'word' && response.ok) {
           const blob = await response.blob();
-          const fileName = response.headers.get('X-File-Name') || 'quiz.docx';
+          const fileName = response.headers.get('X-File-Name') || 'quiz_word_files.zip';
           const url = window.URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.href = url;
           link.download = fileName;
           link.click();
           window.URL.revokeObjectURL(url);
-          setStatus('File Word berhasil dibuat dan download dimulai.');
-          showResultHtml('<div class="result-line">Jika download tidak mulai otomatis, ulangi permintaan atau cek popup/download browser.</div>');
+          setStatus('File Word berhasil dibuat dan download ZIP dimulai.');
+          showResultHtml('<div class="result-line">ZIP berisi dua file: naskah soal dan kunci jawaban.</div>');
           return;
         }
 
@@ -265,7 +266,7 @@ HTML_PAGE = """<!doctype html>
         showResultHtml(
           '<strong>' + payload.title + '</strong>' +
           '<div class="result-line">Jumlah soal: ' + payload.question_count + '</div>' +
-          '<div class="result-line">Poin per soal: ' + payload.points_per_question + '</div>' +
+          '<div class="result-line">Skema poin: ' + payload.points_summary + '</div>' +
           '<div class="result-links">' +
             '<a class="button-link secondary" href="' + payload.edit_url + '" target="_blank" rel="noopener noreferrer">Buka Editor</a>' +
             '<a class="button-link" href="' + payload.view_url + '" target="_blank" rel="noopener noreferrer">Buka View</a>' +
@@ -584,15 +585,27 @@ class handler(BaseHTTPRequestHandler):
             result = generate_quiz_from_prompt(prompt, output_mode=mode, google_creds=google_creds)
 
             if mode == "word":
-                file_path = result["file_path"]
-                file_name = os.path.basename(file_path)
-                with open(file_path, "rb") as output_file:
+                word_files = result["word_files"]
+                zip_file_name = "quiz_word_files.zip"
+                zip_file_path = os.path.join("/tmp" if os.getenv("VERCEL") else os.getcwd(), zip_file_name)
+
+                with zipfile.ZipFile(zip_file_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                    zip_file.write(
+                        word_files["questions_file_path"],
+                        arcname=os.path.basename(word_files["questions_file_path"])
+                    )
+                    zip_file.write(
+                        word_files["answer_key_file_path"],
+                        arcname=os.path.basename(word_files["answer_key_file_path"])
+                    )
+
+                with open(zip_file_path, "rb") as output_file:
                     file_bytes = output_file.read()
                 self._send_response(
                     200,
                     file_bytes,
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    {"Content-Disposition": f'attachment; filename="{file_name}"', "X-File-Name": file_name}
+                    "application/zip",
+                    {"Content-Disposition": f'attachment; filename="{zip_file_name}"', "X-File-Name": zip_file_name}
                 )
                 return
 
@@ -602,7 +615,7 @@ class handler(BaseHTTPRequestHandler):
                 {
                     "title": result["title"],
                     "question_count": len(result["questions"]),
-                    "points_per_question": result["points_per_question"],
+                    "points_summary": result["points_summary"],
                     "edit_url": form_links["edit_url"],
                     "view_url": form_links["view_url"]
                 }

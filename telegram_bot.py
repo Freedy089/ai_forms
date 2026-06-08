@@ -78,7 +78,7 @@ def handle_prompt(chat_id, prompt):
             (
                 f"Judul: {result['title']}\n"
                 f"Jumlah soal: {len(result['questions'])}\n"
-                f"Poin per soal: {result['points_per_question']}\n"
+                f"Skema poin: {result['points_summary']}\n"
                 f"Link Editor: {form_links['edit_url']}\n"
                 f"Link View: {form_links['view_url']}"
             )
@@ -88,9 +88,11 @@ def handle_prompt(chat_id, prompt):
     caption = (
         f"Judul: {result['title']}\n"
         f"Jumlah soal: {len(result['questions'])}\n"
-        f"Poin per soal: {result['points_per_question']}"
+        f"Skema poin: {result['points_summary']}"
     )
-    send_document(chat_id, result["file_path"], caption)
+    word_files = result["word_files"]
+    send_document(chat_id, word_files["questions_file_path"], f"{caption}\nFile: Soal")
+    send_document(chat_id, word_files["answer_key_file_path"], f"{caption}\nFile: Kunci Jawaban")
 
 
 def extract_message(update):

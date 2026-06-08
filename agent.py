@@ -92,19 +92,45 @@ def extract_json(text_output):
     return text_output.strip()
 
 def extract_requested_points(user_prompt):
-    """Mengambil poin per soal dari instruksi user, fallback ke default."""
-    patterns = [
+    """Mengambil poin default dan poin khusus per tipe soal dari instruksi user."""
+    lower_prompt = user_prompt.lower()
+    point_config = {
+        "default": DEFAULT_POINTS,
+        "pg": None,
+        "esai": None
+    }
+
+    typed_patterns = [
+        (r'(pilihan\s*ganda|pg)\s*(?:sebanyak\s*\d+\s*soal\s*)?(?:dengan\s*)?(\d+)\s*(?:poin|point)\b', "pg"),
+        (r'(esai|essay)\s*(?:sebanyak\s*\d+\s*soal\s*)?(?:dengan\s*)?(\d+)\s*(?:poin|point)\b', "esai"),
+        (r'(\d+)\s*(?:poin|point)\s*(?:untuk|buat)\s*(pilihan\s*ganda|pg)\b', "pg"),
+        (r'(\d+)\s*(?:poin|point)\s*(?:untuk|buat)\s*(esai|essay)\b', "esai"),
+    ]
+
+    for pattern, question_type in typed_patterns:
+        match = re.search(pattern, lower_prompt)
+        if match:
+            point_value = match.group(2) if len(match.groups()) > 1 and match.group(2).isdigit() else match.group(1)
+            point_config[question_type] = max(1, int(point_value))
+
+    general_patterns = [
         r'(\d+)\s*poin\b',
         r'(\d+)\s*point\b',
         r'poin(?:\s+per\s+soal)?\s*(?:nya|adalah|=|:)?\s*(\d+)\b',
         r'point(?:\s+per\s+soal)?\s*(?:nya|adalah|=|:)?\s*(\d+)\b',
     ]
-    lower_prompt = user_prompt.lower()
-    for pattern in patterns:
+    for pattern in general_patterns:
         match = re.search(pattern, lower_prompt)
         if match:
-            return max(1, int(match.group(1)))
-    return DEFAULT_POINTS
+            point_config["default"] = max(1, int(match.group(1)))
+            break
+
+    if point_config["pg"] is None:
+        point_config["pg"] = point_config["default"]
+    if point_config["esai"] is None:
+        point_config["esai"] = point_config["default"]
+
+    return point_config
 
 def normalize_whitespace(text):
     return re.sub(r'\s+', ' ', str(text or '')).strip()
@@ -169,57 +195,69 @@ def build_form_title(user_prompt, ai_title):
         return f"{subject} - {grade_label}"
     if subject:
         return subject
-    return normalize_whitespace(ai_title)
+    if grade_label:
+        return f"Quiz - {grade_label}"
+    return normalize_whitespace(ai_title) or "Quiz"
 
-def build_ai_prompt(user_input, points_per_question):
+def format_points_summary(point_config):
+    if point_config["pg"] == point_config["esai"]:
+        return f"{point_config['pg']} poin per soal"
+    return f"PG {point_config['pg']} poin, Esai {point_config['esai']} poin"
+
+def build_ai_prompt(user_input, point_config):
     return (
         f"{user_input.strip()}\n\n"
         f"Instruksi sistem tambahan:\n"
         f"- Judul wajib singkat dan sederhana, format utamanya: Mata Pelajaran - Kelas.\n"
-        f"- Setiap soal wajib memiliki properti 'poin' dengan nilai {points_per_question}.\n"
+        f"- Setiap soal wajib memiliki properti 'poin'.\n"
+        f"- Soal PG harus memakai {point_config['pg']} poin per butir.\n"
+        f"- Soal esai harus memakai {point_config['esai']} poin per butir.\n"
         f"- Jika output dibuat untuk Google Form, siapkan soal agar cocok dijadikan quiz.\n"
         f"- Untuk soal PG, isi 'kunci_jawaban' dengan huruf opsi yang benar.\n"
         f"- Untuk soal esai, biarkan 'kunci_jawaban' kosong.\n"
     )
 
-def normalize_questions(questions, points_per_question):
+def normalize_questions(questions, point_config):
     """Menjamin setiap butir soal punya bentuk data yang konsisten untuk downstream."""
     normalized_questions = []
     for question in questions:
+        question_type = str(question.get('tipe', 'esai')).strip().lower()
+        fallback_points = point_config["pg"] if question_type == "pg" else point_config["esai"]
         normalized_question = {
-            'tipe': str(question.get('tipe', 'esai')).strip().lower(),
+            'tipe': question_type,
             'pertanyaan': str(question.get('pertanyaan', '')).strip(),
             'pilihan': question.get('pilihan') or [],
             'kunci_jawaban': str(question.get('kunci_jawaban', '')).strip(),
-            'poin': max(1, int(question.get('poin', points_per_question)))
+            'poin': max(1, int(question.get('poin', fallback_points)))
         }
         normalized_questions.append(normalized_question)
     return normalized_questions
 
 def generate_quiz_from_prompt(user_input, output_mode=None, google_creds=None):
     """Menjalankan alur utama pembuatan soal agar bisa dipakai CLI dan Telegram."""
-    points_per_question = extract_requested_points(user_input)
+    point_config = extract_requested_points(user_input)
     mode = output_mode or "form"
     if output_mode is None and ("word" in user_input.lower() or "docx" in user_input.lower()):
         mode = "word"
 
-    ai_response = call_owl_alpha(build_ai_prompt(user_input, points_per_question))
+    ai_response = call_owl_alpha(build_ai_prompt(user_input, point_config))
     cleaned_json_text = extract_json(ai_response)
     quiz_data = json.loads(cleaned_json_text)
 
     title = build_form_title(user_input, quiz_data.get('judul', 'Quiz'))
-    questions = normalize_questions(quiz_data['soal'], points_per_question)
+    questions = normalize_questions(quiz_data['soal'], point_config)
     result = {
         'title': title,
         'questions': questions,
         'mode': mode,
-        'points_per_question': points_per_question
+        'point_config': point_config,
+        'points_summary': format_points_summary(point_config)
     }
 
     if mode == "form":
         result['form_links'] = create_google_form(title, questions, creds=google_creds)
     else:
-        result['file_path'] = generate_docx_file(title, questions)
+        result['word_files'] = generate_docx_file(title, questions)
 
     return result
 
@@ -233,12 +271,12 @@ def main():
         title = result['title']
         questions = result['questions']
         mode = result['mode']
-        points_per_question = result['points_per_question']
+        points_summary = result['points_summary']
         
         print(f"[2/3] Soal berhasil dibuat: '{title}' ({len(questions)} butir soal ditemukan).")
         
         if mode == "form":
-            print(f"[3/3] Menghubungkan ke Google API untuk generate Quiz Form dengan {points_per_question} poin per soal...")
+            print(f"[3/3] Menghubungkan ke Google API untuk generate Quiz Form dengan skema poin {points_summary}...")
             form_links = result['form_links']
             print(f"\n✨ BERHASIL! Google Quiz Form telah dibuat di akun Anda.")
             print(f"🛠️ Link Editor Google Form: {form_links['edit_url']}")
@@ -246,9 +284,10 @@ def main():
             
         else:
             print("[3/3] Membuat file Word (.docx) di local device...")
-            file_path = result['file_path']
+            word_files = result['word_files']
             print(f"\n✨ BERHASIL! File Word telah disimpan di lokal device Anda.")
-            print(f"📂 Lokasi file: {file_path}")
+            print(f"📂 File soal: {word_files['questions_file_path']}")
+            print(f"📂 File kunci jawaban: {word_files['answer_key_file_path']}")
             
     except json.JSONDecodeError:
         print("\n❌ Gagal: AI tidak mengembalikan format data JSON yang bersih.")
