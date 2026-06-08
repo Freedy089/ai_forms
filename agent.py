@@ -266,17 +266,33 @@ def build_ai_prompt(user_input, point_config, count_config):
 
 def normalize_questions(questions, point_config):
     """Menjamin setiap butir soal punya bentuk data yang konsisten untuk downstream."""
+    if not isinstance(questions, list):
+        raise ValueError("Format 'soal' dari AI tidak valid. Data soal harus berupa array/list.")
+
     normalized_questions = []
-    for question in questions:
+    for index, question in enumerate(questions, 1):
+        if not isinstance(question, dict):
+            raise ValueError(
+                f"Format soal nomor {index} tidak valid. Setiap butir soal harus berupa object JSON."
+            )
+
         question_type = str(question.get('tipe', 'esai')).strip().lower()
         fallback_points = point_config["pg"] if question_type == "pg" else point_config["esai"]
+        raw_choices = question.get('pilihan') or []
+        if isinstance(raw_choices, str):
+            raw_choices = [choice.strip() for choice in re.split(r'\n|;', raw_choices) if choice.strip()]
+        elif not isinstance(raw_choices, list):
+            raw_choices = []
+
         normalized_question = {
             'tipe': question_type,
             'pertanyaan': str(question.get('pertanyaan', '')).strip(),
-            'pilihan': question.get('pilihan') or [],
+            'pilihan': [str(choice).strip() for choice in raw_choices if str(choice).strip()],
             'kunci_jawaban': str(question.get('kunci_jawaban', '')).strip(),
             'poin': max(1, int(question.get('poin', fallback_points)))
         }
+        if not normalized_question['pertanyaan']:
+            raise ValueError(f"Soal nomor {index} tidak memiliki teks pertanyaan.")
         normalized_questions.append(normalized_question)
     return normalized_questions
 
