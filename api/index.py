@@ -452,14 +452,18 @@ class handler(BaseHTTPRequestHandler):
 
     def _start_google_auth(self):
         flow = build_flow(self.headers)
-        state = secrets.token_urlsafe(32)
         authorization_url, generated_state = flow.authorization_url(
             access_type="offline",
             include_granted_scopes="true",
-            prompt="consent",
-            state=state
+            prompt="consent"
         )
-        cookie_value = build_cookie_value({"state": generated_state})
+        cookie_payload = {
+            "state": generated_state
+        }
+        code_verifier = getattr(flow, "code_verifier", None)
+        if code_verifier:
+            cookie_payload["code_verifier"] = code_verifier
+        cookie_value = build_cookie_value(cookie_payload)
         self._redirect(
             authorization_url,
             extra_headers={"Set-Cookie": self._set_cookie_header(STATE_COOKIE_NAME, cookie_value, max_age=600)}
@@ -468,10 +472,12 @@ class handler(BaseHTTPRequestHandler):
     def _complete_google_auth(self):
         raw_state_cookie = self._cookie_value(STATE_COOKIE_NAME)
         stored_state = None
+        stored_code_verifier = None
         if raw_state_cookie:
             payload = parse_cookie_value(raw_state_cookie)
             if payload:
                 stored_state = payload.get("state")
+                stored_code_verifier = payload.get("code_verifier")
 
         query = self._query_params()
         returned_state = (query.get("state") or [""])[0]
@@ -480,6 +486,8 @@ class handler(BaseHTTPRequestHandler):
             return
 
         flow = build_flow(self.headers, state=stored_state)
+        if stored_code_verifier:
+            flow.code_verifier = stored_code_verifier
         authorization_response = f"{build_base_url(self.headers)}{self.path}"
         flow.fetch_token(authorization_response=authorization_response)
         creds_payload = serialize_credentials(flow.credentials)
