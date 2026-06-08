@@ -96,6 +96,15 @@ HTML_PAGE = """<!doctype html>
     .status.error { border-color: rgba(179,58,58,.3); background: rgba(179,58,58,.07); color: var(--danger); }
     .status.warn { border-color: rgba(109,76,22,.2); background: rgba(109,76,22,.08); color: var(--warn); }
     .result-links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
+    .template-box {
+      margin-top: 12px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fff;
+      white-space: pre-wrap;
+      line-height: 1.6;
+    }
     @media (max-width: 760px) {
       .hero, .row { grid-template-columns: 1fr; }
       .wrap { padding: 20px 14px 40px; }
@@ -114,11 +123,11 @@ HTML_PAGE = """<!doctype html>
         </p>
       </div>
       <div class="card">
-        <p class="meta">Contoh prompt</p>
+        <p class="meta">Format prompt</p>
         <ul class="tips">
-          <li>Buatkan 10 soal kelas 10 SMK mata pelajaran Bahasa Inggris, pilihan ganda, 4 poin per soal.</li>
-          <li>Buat 5 soal esai kelas 8 SMP mapel IPA tentang sistem pencernaan, 2 poin per soal.</li>
-          <li>Buat soal campuran untuk kelas 6 SD mata pelajaran Matematika tentang pecahan.</li>
+          <li>Gunakan format: kelas, mata pelajaran, materi, tingkat kesulitan, jumlah soal per tipe, dan poin per tipe.</li>
+          <li>Tulis jumlah soal secara tegas, misalnya `50 pilihan ganda` dan `5 essay`.</li>
+          <li>Tulis poin per tipe secara tegas, misalnya `pilihan ganda 2 poin` dan `essay 3 poin`.</li>
         </ul>
       </div>
     </section>
@@ -131,6 +140,20 @@ HTML_PAGE = """<!doctype html>
       </div>
       <div id="auth-note" class="status warn">
         Login Google diperlukan agar form dibuat di akun Google milik Anda sendiri.
+      </div>
+
+      <div class="status">
+        <strong>Template prompt</strong>
+        <div class="status-note" style="margin-top:8px;">
+          Gunakan format berikut agar hasil lebih rapi dan jumlah soal sesuai:
+        </div>
+        <div id="prompt-template" class="template-box">Buatkan soal untuk kelas [KELAS] dengan mata pelajaran [MATA PELAJARAN], materi [MATERI], tingkat kesulitan [RENDAH/SEDANG/TINGGI], dengan bentuk soal [JUMLAH PG] Pilihan Ganda sampai [D/E] dan [JUMLAH ESSAY] Essay, dengan poin Pilihan Ganda [POIN PG] poin dan Essay [POIN ESSAY] poin.</div>
+        <div class="status-note" style="margin-top:10px;">
+          Format ini adalah template. Ganti bagian dalam tanda kurung siku sesuai kebutuhan Anda.
+        </div>
+        <div style="margin-top:12px;">
+          <button id="use-template-btn" type="button">Gunakan template ini</button>
+        </div>
       </div>
 
       <form id="quiz-form">
@@ -162,6 +185,8 @@ HTML_PAGE = """<!doctype html>
     const statusBox = document.getElementById('status');
     const resultBox = document.getElementById('result');
     const submitButton = document.getElementById('submit-btn');
+    const useTemplateButton = document.getElementById('use-template-btn');
+    const promptTemplateBox = document.getElementById('prompt-template');
     const authPill = document.getElementById('auth-pill');
     const authNote = document.getElementById('auth-note');
     const connectButton = document.getElementById('connect-btn');
@@ -302,6 +327,14 @@ HTML_PAGE = """<!doctype html>
       } finally {
         submitButton.disabled = !isAuthenticated;
       }
+    });
+
+    useTemplateButton.addEventListener('click', () => {
+      const promptBox = document.getElementById('prompt');
+      promptBox.value = promptTemplateBox.textContent.trim();
+      promptBox.focus();
+      promptBox.setSelectionRange(promptBox.value.length, promptBox.value.length);
+      setStatus('Template prompt dimasukkan ke kolom instruksi.');
     });
 
     showAuthQueryMessage();
