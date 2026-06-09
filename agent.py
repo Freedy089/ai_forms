@@ -47,6 +47,8 @@ Struktur JSON harus persis seperti ini:
 
 DEFAULT_POINTS = 1
 MAX_AI_ATTEMPTS = 2
+MAX_PG_PER_BATCH = 20
+MAX_ESAI_PER_BATCH = 5
 
 def call_owl_alpha(user_prompt):
     """Memanggil model Owl Alpha via OpenRouter"""
@@ -244,6 +246,44 @@ def format_counts_summary(count_config):
         parts.append(f"{count_config['esai']} esai")
     return ", ".join(parts)
 
+def should_chunk_large_request(count_config):
+    if count_config["pg"] is not None and count_config["pg"] > MAX_PG_PER_BATCH:
+        return True
+    if count_config["esai"] is not None and count_config["esai"] > MAX_ESAI_PER_BATCH:
+        return True
+    return False
+
+def distribute_count(total, batch_count):
+    if total is None:
+        return [None] * batch_count
+    base, remainder = divmod(total, batch_count)
+    distribution = []
+    for index in range(batch_count):
+        distribution.append(base + (1 if index < remainder else 0))
+    return distribution
+
+def build_chunk_count_configs(count_config):
+    pg_total = count_config["pg"] or 0
+    esai_total = count_config["esai"] or 0
+    batch_count = max(
+        1,
+        (pg_total + MAX_PG_PER_BATCH - 1) // MAX_PG_PER_BATCH if pg_total else 1,
+        (esai_total + MAX_ESAI_PER_BATCH - 1) // MAX_ESAI_PER_BATCH if esai_total else 1
+    )
+
+    pg_distribution = distribute_count(count_config["pg"], batch_count)
+    esai_distribution = distribute_count(count_config["esai"], batch_count)
+
+    chunk_configs = []
+    for index in range(batch_count):
+        chunk_config = {
+            "pg": pg_distribution[index],
+            "esai": esai_distribution[index]
+        }
+        if chunk_config["pg"] or chunk_config["esai"]:
+            chunk_configs.append(chunk_config)
+    return chunk_configs
+
 def build_ai_prompt(user_input, point_config, count_config):
     count_instructions = ""
     if count_config["pg"] is not None:
@@ -309,7 +349,22 @@ def validate_question_counts(questions, count_config):
             f"Jumlah soal esai tidak sesuai. Diminta {count_config['esai']}, tetapi AI membuat {actual_esai}."
         )
 
-def generate_quiz_data(user_input, point_config, count_config):
+def build_batch_user_prompt(user_input, batch_count_config, batch_index, total_batches):
+    batch_parts = []
+    if batch_count_config["pg"]:
+        batch_parts.append(f"{batch_count_config['pg']} soal PG")
+    if batch_count_config["esai"]:
+        batch_parts.append(f"{batch_count_config['esai']} soal esai")
+    batch_summary = " dan ".join(batch_parts)
+
+    return (
+        f"{user_input.strip()}\n\n"
+        f"Batch {batch_index} dari {total_batches}. "
+        f"Untuk batch ini, buat tepat {batch_summary}. "
+        f"Hindari pengulangan soal yang terlalu mirip antar batch."
+    )
+
+def generate_single_batch_quiz_data(user_input, point_config, count_config):
     last_error = None
     current_prompt = user_input
 
@@ -335,10 +390,29 @@ def generate_quiz_data(user_input, point_config, count_config):
     if last_error:
         raise last_error
 
+def generate_quiz_data(user_input, point_config, count_config):
+    if not should_chunk_large_request(count_config):
+        return generate_single_batch_quiz_data(user_input, point_config, count_config)
+
+    chunk_count_configs = build_chunk_count_configs(count_config)
+    all_questions = []
+    batch_title = None
+
+    for index, chunk_count_config in enumerate(chunk_count_configs, 1):
+        batch_prompt = build_batch_user_prompt(user_input, chunk_count_config, index, len(chunk_count_configs))
+        quiz_data, questions = generate_single_batch_quiz_data(batch_prompt, point_config, chunk_count_config)
+        if not batch_title:
+            batch_title = quiz_data.get("judul", "Quiz")
+        all_questions.extend(questions)
+
+    validate_question_counts(all_questions, count_config)
+    return {"judul": batch_title, "soal": all_questions}, all_questions
+
 def generate_quiz_from_prompt(user_input, output_mode=None, google_creds=None):
     """Menjalankan alur utama pembuatan soal agar bisa dipakai CLI dan Telegram."""
     point_config = extract_requested_points(user_input)
     count_config = extract_requested_counts(user_input)
+    chunked_generation = should_chunk_large_request(count_config)
     mode = output_mode or "form"
     if output_mode is None and ("word" in user_input.lower() or "docx" in user_input.lower()):
         mode = "word"
@@ -351,7 +425,8 @@ def generate_quiz_from_prompt(user_input, output_mode=None, google_creds=None):
         'mode': mode,
         'point_config': point_config,
         'points_summary': format_points_summary(point_config),
-        'counts_summary': format_counts_summary(count_config)
+        'counts_summary': format_counts_summary(count_config),
+        'chunked_generation': chunked_generation
     }
 
     if mode == "form":
@@ -374,6 +449,8 @@ def main():
         points_summary = result['points_summary']
         
         print(f"[2/3] Soal berhasil dibuat: '{title}' ({len(questions)} butir soal ditemukan).")
+        if result['chunked_generation']:
+            print("[Info] Permintaan besar diproses dalam beberapa batch AI lalu digabung.")
         
         if mode == "form":
             print(f"[3/3] Menghubungkan ke Google API untuk generate Quiz Form dengan skema poin {points_summary}...")

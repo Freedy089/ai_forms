@@ -317,6 +317,7 @@ HTML_PAGE = """<!doctype html>
           '<strong>' + payload.title + '</strong>' +
           '<div class="result-line">Jumlah soal: ' + payload.question_count + '</div>' +
           '<div class="result-line">Skema poin: ' + payload.points_summary + '</div>' +
+          (payload.chunked_generation ? '<div class="result-line">Permintaan besar diproses dalam beberapa batch AI lalu digabung.</div>' : '') +
           '<div class="result-links">' +
             '<a class="button-link secondary" href="' + payload.edit_url + '" target="_blank" rel="noopener noreferrer">Buka Editor</a>' +
             '<a class="button-link" href="' + payload.view_url + '" target="_blank" rel="noopener noreferrer">Buka View</a>' +
@@ -681,6 +682,7 @@ class handler(BaseHTTPRequestHandler):
                     "title": result["title"],
                     "question_count": len(result["questions"]),
                     "points_summary": result["points_summary"],
+                    "chunked_generation": result["chunked_generation"],
                     "edit_url": form_links["edit_url"],
                     "view_url": form_links["view_url"]
                 }
