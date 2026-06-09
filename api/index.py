@@ -105,6 +105,149 @@ HTML_PAGE = """<!doctype html>
       white-space: pre-wrap;
       line-height: 1.6;
     }
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(24, 34, 47, 0.24);
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      z-index: 9999;
+    }
+    .loading-overlay.hidden { display: none; }
+    .loading-card {
+      width: min(560px, 100%);
+      background: rgba(255,253,248,.98);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 24px;
+      box-shadow: 0 24px 60px rgba(24, 34, 47, 0.22);
+    }
+    .loading-head {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+    .loader-orbit {
+      width: 58px;
+      height: 58px;
+      border-radius: 50%;
+      border: 3px solid rgba(15,108,92,.15);
+      border-top-color: var(--accent);
+      animation: spin 1s linear infinite;
+      flex: 0 0 auto;
+      position: relative;
+    }
+    .loader-orbit::after {
+      content: "";
+      position: absolute;
+      inset: 9px;
+      border-radius: 50%;
+      border: 3px dashed rgba(217,122,43,.45);
+      animation: spin-reverse 2.4s linear infinite;
+    }
+    .loading-title {
+      margin: 0;
+      font-size: 1.2rem;
+    }
+    .loading-subtitle {
+      margin: 6px 0 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .progress-track {
+      width: 100%;
+      height: 12px;
+      border-radius: 999px;
+      background: #ebe2d2;
+      overflow: hidden;
+      margin: 16px 0 10px;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 12%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      transition: width 700ms ease;
+      position: relative;
+    }
+    .progress-fill::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
+      transform: translateX(-100%);
+      animation: shimmer 1.8s linear infinite;
+    }
+    .progress-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .batch-box {
+      margin-top: 18px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: #fff;
+      padding: 14px 16px;
+    }
+    .batch-title {
+      margin: 0 0 8px;
+      font-weight: 700;
+    }
+    .batch-status {
+      color: var(--muted);
+      line-height: 1.5;
+      margin-bottom: 10px;
+    }
+    .stage-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .stage-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .stage-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #d3c6b0;
+      flex: 0 0 auto;
+      transition: transform 300ms ease, background 300ms ease;
+    }
+    .stage-item.active .stage-dot {
+      background: var(--accent);
+      transform: scale(1.15);
+      box-shadow: 0 0 0 6px rgba(15,108,92,.12);
+    }
+    .stage-item.done .stage-dot {
+      background: var(--accent-2);
+    }
+    .stage-item.active, .stage-item.done {
+      color: var(--ink);
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    @keyframes spin-reverse {
+      from { transform: rotate(360deg); }
+      to { transform: rotate(0deg); }
+    }
+    @keyframes shimmer {
+      from { transform: translateX(-100%); }
+      to { transform: translateX(100%); }
+    }
     @media (max-width: 760px) {
       .hero, .row { grid-template-columns: 1fr; }
       .wrap { padding: 20px 14px 40px; }
@@ -180,6 +323,30 @@ HTML_PAGE = """<!doctype html>
     </section>
   </div>
 
+  <div id="loading-overlay" class="loading-overlay hidden" aria-live="polite">
+    <div class="loading-card">
+      <div class="loading-head">
+        <div class="loader-orbit"></div>
+        <div>
+          <h2 id="loading-title" class="loading-title">Sedang memproses permintaan</h2>
+          <p id="loading-subtitle" class="loading-subtitle">Sistem sedang menyiapkan prompt dan menghubungi AI.</p>
+        </div>
+      </div>
+      <div class="progress-track">
+        <div id="progress-fill" class="progress-fill"></div>
+      </div>
+      <div class="progress-meta">
+        <span id="progress-label">Menyiapkan proses</span>
+        <span id="progress-percent">12%</span>
+      </div>
+      <div class="batch-box">
+        <p class="batch-title">Progress batch</p>
+        <div id="batch-status" class="batch-status">Menghitung jumlah batch dari prompt...</div>
+        <div id="stage-list" class="stage-list"></div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const form = document.getElementById('quiz-form');
     const statusBox = document.getElementById('status');
@@ -191,8 +358,18 @@ HTML_PAGE = """<!doctype html>
     const authNote = document.getElementById('auth-note');
     const connectButton = document.getElementById('connect-btn');
     const logoutButton = document.getElementById('logout-btn');
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const loadingTitle = document.getElementById('loading-title');
+    const loadingSubtitle = document.getElementById('loading-subtitle');
+    const progressFill = document.getElementById('progress-fill');
+    const progressLabel = document.getElementById('progress-label');
+    const progressPercent = document.getElementById('progress-percent');
+    const batchStatus = document.getElementById('batch-status');
+    const stageList = document.getElementById('stage-list');
 
     let isAuthenticated = false;
+    let loadingTimer = null;
+    let loadingState = null;
 
     function setStatus(message, kind = '') {
       statusBox.textContent = message;
@@ -209,6 +386,147 @@ HTML_PAGE = """<!doctype html>
     function showResultHtml(html) {
       resultBox.innerHTML = html;
       resultBox.classList.remove('hidden');
+    }
+
+    function estimateRequestedCounts(prompt) {
+      const lowerPrompt = prompt.toLowerCase();
+      const result = { pg: 0, esai: 0 };
+      const pgPatterns = [
+        /(\d+)\s*(?:soal\s*)?(?:pilihan\s*ganda|pg)\b/,
+        /(?:pilihan\s*ganda|pg)\s*(?:sebanyak\s*)?(\d+)\s*soal\b/
+      ];
+      const esaiPatterns = [
+        /(\d+)\s*(?:soal\s*)?(?:esai|essay)\b/,
+        /(?:esai|essay)\s*(?:sebanyak\s*)?(\d+)\s*soal\b/
+      ];
+
+      for (const pattern of pgPatterns) {
+        const match = lowerPrompt.match(pattern);
+        if (match) {
+          result.pg = Number(match[1]);
+          break;
+        }
+      }
+
+      for (const pattern of esaiPatterns) {
+        const match = lowerPrompt.match(pattern);
+        if (match) {
+          result.esai = Number(match[1]);
+          break;
+        }
+      }
+
+      return result;
+    }
+
+    function estimateBatchCount(prompt) {
+      const counts = estimateRequestedCounts(prompt);
+      const pgBatches = counts.pg ? Math.ceil(counts.pg / 20) : 1;
+      const esaiBatches = counts.esai ? Math.ceil(counts.esai / 5) : 1;
+      return {
+        counts,
+        batchCount: Math.max(1, pgBatches, esaiBatches)
+      };
+    }
+
+    function renderStageList(stageIndex) {
+      if (!loadingState) return;
+      stageList.innerHTML = '';
+      loadingState.stages.forEach((stage, index) => {
+        const item = document.createElement('div');
+        let className = 'stage-item';
+        if (index < stageIndex) className += ' done';
+        else if (index === stageIndex) className += ' active';
+        item.className = className;
+        item.innerHTML = '<span class="stage-dot"></span><span>' + stage + '</span>';
+        stageList.appendChild(item);
+      });
+    }
+
+    function updateLoadingUI(progressValue, label, subtitle, stageIndex, batchText) {
+      const safeProgress = Math.max(8, Math.min(progressValue, 96));
+      progressFill.style.width = safeProgress + '%';
+      progressPercent.textContent = Math.round(safeProgress) + '%';
+      progressLabel.textContent = label;
+      loadingSubtitle.textContent = subtitle;
+      batchStatus.textContent = batchText;
+      renderStageList(stageIndex);
+    }
+
+    function startLoadingAnimation(mode, prompt) {
+      const estimate = estimateBatchCount(prompt);
+      const batchCount = estimate.batchCount;
+      const outputLabel = mode === 'word' ? 'dokumen Word' : 'Google Form';
+
+      loadingState = {
+        mode,
+        prompt,
+        batchCount,
+        counts: estimate.counts,
+        stageCursor: 0,
+        stages: [
+          'Menganalisis prompt dan aturan jumlah soal',
+          batchCount > 1 ? 'Menyusun batch AI kecil agar request besar tetap stabil' : 'Menyiapkan satu batch AI',
+          mode === 'word' ? 'Menggabungkan hasil dan membentuk file Word' : 'Mengirim hasil ke Google Forms',
+          mode === 'word' ? 'Menyiapkan file akhir untuk diunduh' : 'Menyelesaikan tautan editor dan view'
+        ]
+      };
+
+      loadingTitle.textContent = 'Sedang membuat ' + outputLabel;
+      loadingOverlay.classList.remove('hidden');
+      updateLoadingUI(
+        12,
+        'Menyiapkan proses',
+        'Sistem sedang menyiapkan prompt dan menghubungi AI.',
+        0,
+        batchCount > 1
+          ? 'Estimasi ' + batchCount + ' batch AI untuk ' + (estimate.counts.pg || 0) + ' PG dan ' + (estimate.counts.esai || 0) + ' esai.'
+          : 'Permintaan diproses dalam satu batch AI.'
+      );
+
+      let tick = 0;
+      clearInterval(loadingTimer);
+      loadingTimer = setInterval(() => {
+        if (!loadingState) return;
+        tick += 1;
+        const stageIndex = Math.min(loadingState.stages.length - 1, Math.floor(tick / 3));
+        const batchDisplay = loadingState.batchCount > 1
+          ? Math.min(loadingState.batchCount, 1 + Math.floor(tick / 2))
+          : 1;
+        const progressBase = [12, 34, 62, 82][stageIndex] || 12;
+        const progressBump = Math.min(10, (tick % 3) * 3);
+        const subtitle = loadingState.batchCount > 1
+          ? 'Sedang memproses batch ' + batchDisplay + ' dari ' + loadingState.batchCount + '.'
+          : 'Permintaan sedang diproses langsung ke AI.';
+        const batchText = loadingState.batchCount > 1
+          ? 'Progress batch estimasi: batch ' + batchDisplay + ' / ' + loadingState.batchCount
+          : 'Progress batch estimasi: 1 / 1';
+
+        updateLoadingUI(
+          progressBase + progressBump,
+          loadingState.stages[stageIndex],
+          subtitle,
+          stageIndex,
+          batchText
+        );
+      }, 1400);
+    }
+
+    function finishLoadingAnimation(successMessage) {
+      if (!loadingState) return;
+      updateLoadingUI(100, 'Selesai', successMessage, loadingState.stages.length, 'Operasi selesai.');
+      clearInterval(loadingTimer);
+      setTimeout(() => {
+        loadingOverlay.classList.add('hidden');
+        loadingState = null;
+      }, 900);
+    }
+
+    function stopLoadingAnimation() {
+      clearInterval(loadingTimer);
+      loadingTimer = null;
+      loadingState = null;
+      loadingOverlay.classList.add('hidden');
     }
 
     async function readResponsePayload(response) {
@@ -276,6 +594,7 @@ HTML_PAGE = """<!doctype html>
 
       submitButton.disabled = true;
       setStatus('Permintaan sedang diproses. Ini bisa memakan beberapa detik.');
+      startLoadingAnimation(mode, prompt);
 
       try {
         const response = await fetch('/api/generate', {
@@ -304,6 +623,7 @@ HTML_PAGE = """<!doctype html>
           window.URL.revokeObjectURL(url);
           setStatus('File Word berhasil dibuat dan download ZIP dimulai.');
           showResultHtml('<div class="result-line">ZIP berisi dua file: naskah soal dan kunci jawaban.</div>');
+          finishLoadingAnimation('Dokumen Word besar selesai disusun.');
           return;
         }
 
@@ -323,7 +643,9 @@ HTML_PAGE = """<!doctype html>
             '<a class="button-link" href="' + payload.view_url + '" target="_blank" rel="noopener noreferrer">Buka View</a>' +
           '</div>'
         );
+        finishLoadingAnimation('Google Form selesai dibuat.');
       } catch (error) {
+        stopLoadingAnimation();
         setStatus(error.message || 'Gagal memproses permintaan.', 'error');
       } finally {
         submitButton.disabled = !isAuthenticated;
