@@ -271,19 +271,25 @@ HTML_PAGE = r"""<!doctype html>
   <div class="wrap">
     <section class="hero">
       <div class="card">
-        <div class="badge">Hermes Quiz Builder Web</div>
-        <h1>Buat Google Form quiz dari prompt biasa.</h1>
-        <p class="lead">
+        <div id="badge-text" class="badge">Hermes Quiz Builder Web</div>
+        <h1 id="hero-title">Buat Google Form quiz dari prompt biasa.</h1>
+        <p id="hero-lead" class="lead">
           User login dulu dengan akun Google masing-masing. Setelah itu form dibuat langsung
           di Google Drive milik user yang sedang login.
         </p>
       </div>
       <div class="card">
-        <p class="meta">Format prompt</p>
+        <div class="toolbar" style="justify-content:space-between; margin-bottom:16px;">
+          <p id="prompt-format-title" class="meta" style="margin:0;">Format prompt</p>
+          <div class="toolbar" style="margin:0;">
+            <button id="lang-id-btn" type="button">Bahasa Indonesia</button>
+            <button id="lang-en-btn" type="button">English</button>
+          </div>
+        </div>
         <ul class="tips">
-          <li>Gunakan format: kelas, mata pelajaran, materi, tingkat kesulitan, jumlah soal per tipe, dan poin per tipe.</li>
-          <li>Tulis jumlah soal secara tegas, misalnya `50 pilihan ganda` dan `5 essay`.</li>
-          <li>Tulis poin per tipe secara tegas, misalnya `pilihan ganda 2 poin` dan `essay 3 poin`.</li>
+          <li id="tip-1">Gunakan format: kelas, mata pelajaran, materi, tingkat kesulitan, jumlah soal per tipe, dan poin per tipe.</li>
+          <li id="tip-2">Tulis jumlah soal secara tegas, misalnya `50 pilihan ganda` dan `5 essay`.</li>
+          <li id="tip-3">Tulis poin per tipe secara tegas, misalnya `pilihan ganda 2 poin` dan `essay 3 poin`.</li>
         </ul>
       </div>
     </section>
@@ -299,12 +305,12 @@ HTML_PAGE = r"""<!doctype html>
       </div>
 
       <div class="status">
-        <strong>Template prompt</strong>
-        <div class="status-note" style="margin-top:8px;">
+        <strong id="template-title">Template prompt</strong>
+        <div id="template-note-1" class="status-note" style="margin-top:8px;">
           Gunakan format berikut agar hasil lebih rapi dan jumlah soal sesuai:
         </div>
         <div id="prompt-template" class="template-box">Buatkan soal untuk kelas [KELAS] dengan mata pelajaran [MATA PELAJARAN], materi [MATERI], tingkat kesulitan [RENDAH/SEDANG/TINGGI], dengan bentuk soal [JUMLAH PG] Pilihan Ganda sampai [D/E] dan [JUMLAH ESSAY] Essay, dengan poin Pilihan Ganda [POIN PG] poin dan Essay [POIN ESSAY] poin.</div>
-        <div class="status-note" style="margin-top:10px;">
+        <div id="template-note-2" class="status-note" style="margin-top:10px;">
           Format ini adalah template. Ganti bagian dalam tanda kurung siku sesuai kebutuhan Anda.
         </div>
         <div style="margin-top:12px;">
@@ -314,15 +320,15 @@ HTML_PAGE = r"""<!doctype html>
 
       <form id="quiz-form">
         <div>
-          <label for="prompt">Instruksi</label>
+          <label id="prompt-label" for="prompt">Instruksi</label>
           <textarea id="prompt" name="prompt" placeholder="Tulis permintaan pembuatan soal di sini..." required></textarea>
         </div>
         <div class="row">
           <div>
-            <label for="mode">Output</label>
+            <label id="mode-label" for="mode">Output</label>
             <select id="mode" name="mode">
-              <option value="form">Google Form Quiz</option>
-              <option value="word">File Word (.docx)</option>
+              <option id="mode-form-option" value="form">Google Form Quiz</option>
+              <option id="mode-word-option" value="word">File Word (.docx)</option>
             </select>
           </div>
           <div style="display:flex;align-items:end;">
@@ -353,7 +359,7 @@ HTML_PAGE = r"""<!doctype html>
         <span id="progress-percent">12%</span>
       </div>
       <div class="batch-box">
-        <p class="batch-title">Progress batch</p>
+        <p id="batch-title" class="batch-title">Progress batch</p>
         <div id="batch-status" class="batch-status">Menghitung jumlah batch dari prompt...</div>
         <div id="stage-list" class="stage-list"></div>
       </div>
@@ -379,11 +385,237 @@ HTML_PAGE = r"""<!doctype html>
     const progressPercent = document.getElementById('progress-percent');
     const batchStatus = document.getElementById('batch-status');
     const stageList = document.getElementById('stage-list');
+    const langIdButton = document.getElementById('lang-id-btn');
+    const langEnButton = document.getElementById('lang-en-btn');
+
+    const translations = {
+      id: {
+        pageTitle: 'Hermes Quiz Builder',
+        badgeText: 'Hermes Quiz Builder Web',
+        heroTitle: 'Buat Google Form quiz dari prompt biasa.',
+        heroLead: 'User login dulu dengan akun Google masing-masing. Setelah itu form dibuat langsung di Google Drive milik user yang sedang login.',
+        promptFormatTitle: 'Format prompt',
+        tip1: 'Gunakan format: kelas, mata pelajaran, materi, tingkat kesulitan, jumlah soal per tipe, dan poin per tipe.',
+        tip2: 'Tulis jumlah soal secara tegas, misalnya `50 pilihan ganda` dan `5 essay`.',
+        tip3: 'Tulis poin per tipe secara tegas, misalnya `pilihan ganda 2 poin` dan `essay 3 poin`.',
+        connectGoogle: 'Hubungkan Google',
+        disconnectSession: 'Putuskan Sesi',
+        authConnected: 'Status Google: terhubung',
+        authDisconnected: 'Status Google: belum terhubung',
+        authNoteConnected: 'Akun Google sudah terhubung. Form akan dibuat di akun Google Anda.',
+        authNoteDisconnected: 'Login Google diperlukan agar form dibuat di akun Google milik Anda sendiri.',
+        templateTitle: 'Template prompt',
+        templateNote1: 'Gunakan format berikut agar hasil lebih rapi dan jumlah soal sesuai:',
+        templateText: 'Buatkan soal untuk kelas [KELAS] dengan mata pelajaran [MATA PELAJARAN], materi [MATERI], tingkat kesulitan [RENDAH/SEDANG/TINGGI], dengan bentuk soal [JUMLAH PG] Pilihan Ganda sampai [D/E] dan [JUMLAH ESSAY] Essay, dengan poin Pilihan Ganda [POIN PG] poin dan Essay [POIN ESSAY] poin.',
+        templateNote2: 'Format ini adalah template. Ganti bagian dalam tanda kurung siku sesuai kebutuhan Anda.',
+        useTemplate: 'Gunakan template ini',
+        promptLabel: 'Instruksi',
+        promptPlaceholder: 'Tulis permintaan pembuatan soal di sini...',
+        modeLabel: 'Output',
+        modeFormOption: 'Google Form Quiz',
+        modeWordOption: 'File Word (.docx)',
+        submit: 'Generate',
+        loadingTitleIdle: 'Sedang memproses permintaan',
+        loadingSubtitleIdle: 'Sistem sedang menyiapkan prompt dan menghubungi AI.',
+        progressLabelIdle: 'Menyiapkan proses',
+        batchTitle: 'Progress batch',
+        batchStatusIdle: 'Menghitung jumlah batch dari prompt...',
+        outputWord: 'dokumen Word',
+        outputForm: 'Google Form',
+        stageAnalyze: 'Menganalisis prompt dan aturan jumlah soal',
+        stageBatchMulti: 'Menyusun batch AI kecil agar request besar tetap stabil',
+        stageBatchSingle: 'Menyiapkan satu batch AI',
+        stageWordCompose: 'Menggabungkan hasil dan membentuk file Word',
+        stageFormSend: 'Mengirim hasil ke Google Forms',
+        stageWordReady: 'Menyiapkan file akhir untuk diunduh',
+        stageFormReady: 'Menyelesaikan tautan editor dan view',
+        preparingProcess: 'Menyiapkan proses',
+        preparingPrompt: 'Sistem sedang menyiapkan prompt dan menghubungi AI.',
+        estimateMulti: (batchCount, pg, esai) => 'Estimasi ' + batchCount + ' batch AI untuk ' + pg + ' PG dan ' + esai + ' esai.',
+        estimateSingle: 'Permintaan diproses dalam satu batch AI.',
+        processingBatch: (batchDisplay, batchCount) => 'Sedang memproses batch ' + batchDisplay + ' dari ' + batchCount + '.',
+        processingDirect: 'Permintaan sedang diproses langsung ke AI.',
+        batchProgressMulti: (batchDisplay, batchCount) => 'Progress batch estimasi: batch ' + batchDisplay + ' / ' + batchCount,
+        batchProgressSingle: 'Progress batch estimasi: 1 / 1',
+        done: 'Selesai',
+        operationDone: 'Operasi selesai.',
+        processingAiBatch: 'Memproses batch AI',
+        wordPreparingDownload: 'Dokumen selesai dibuat. Menyiapkan unduhan.',
+        asyncRunning: 'Job async sedang berjalan di server. Anda bisa menunggu di halaman ini.',
+        actualBatchProgress: (doneCount, totalCount) => 'Progress batch aktual: ' + doneCount + ' / ' + totalCount,
+        downloadWordFailed: 'Gagal mengunduh hasil Word.',
+        fetchWordJobFailed: 'Gagal mengambil status job Word.',
+        watchWordJobFailed: 'Gagal memantau job Word.',
+        wordJobFailed: 'Job Word gagal diproses.',
+        wordLargeDone: 'Dokumen Word besar selesai disusun.',
+        twoFilesReadyStatus: 'Dua file Word berhasil disiapkan. Unduh file soal dan kunci jawaban secara terpisah.',
+        twoFilesReadyLine: 'Dua file Word sudah siap diunduh.',
+        downloadQuestions: 'Unduh Soal',
+        downloadAnswerKey: 'Unduh Kunci Jawaban',
+        serverError: 'Terjadi kesalahan server.',
+        authStateInvalid: 'Sesi login Google kedaluwarsa atau tidak cocok. Silakan hubungkan Google lagi.',
+        authSuccess: 'Akun Google berhasil terhubung.',
+        authLogout: 'Sesi Google sudah diputus.',
+        instructionRequired: 'Instruksi tidak boleh kosong.',
+        connectGoogleFirst: 'Hubungkan akun Google terlebih dahulu.',
+        requestProcessing: 'Permintaan sedang diproses. Ini bisa memakan beberapa detik.',
+        authRequired: 'Autentikasi Google diperlukan.',
+        asyncStartFailed: 'Gagal memulai job Word async.',
+        asyncQueued: 'Permintaan besar dimasukkan ke job async. Sistem akan memproses per batch.',
+        requestFailed: 'Gagal memproses permintaan.',
+        quizCreated: 'Quiz berhasil dibuat.',
+        questionCount: (count) => 'Jumlah soal: ' + count,
+        pointScheme: (value) => 'Skema poin: ' + value,
+        chunkedNote: 'Permintaan besar diproses dalam beberapa batch AI lalu digabung.',
+        openEditor: 'Buka Editor',
+        openView: 'Buka View',
+        formFinished: 'Google Form selesai dibuat.',
+        templateInserted: 'Template prompt dimasukkan ke kolom instruksi.',
+        languageId: 'Bahasa Indonesia',
+        languageEn: 'English'
+      },
+      en: {
+        pageTitle: 'Hermes Quiz Builder',
+        badgeText: 'Hermes Quiz Builder Web',
+        heroTitle: 'Create Google Forms quizzes from plain prompts.',
+        heroLead: 'Each user signs in with their own Google account. The generated form is created directly inside the signed-in user’s Google Drive.',
+        promptFormatTitle: 'Prompt format',
+        tip1: 'Include class level, subject, topic, difficulty, question counts per type, and points per type.',
+        tip2: 'State the counts explicitly, for example `50 multiple choice` and `5 essay`.',
+        tip3: 'State the points explicitly, for example `multiple choice 2 points` and `essay 3 points`.',
+        connectGoogle: 'Connect Google',
+        disconnectSession: 'Disconnect Session',
+        authConnected: 'Google status: connected',
+        authDisconnected: 'Google status: not connected',
+        authNoteConnected: 'Your Google account is connected. Forms will be created in your Google account.',
+        authNoteDisconnected: 'Google sign-in is required so the form is created in your own Google account.',
+        templateTitle: 'Prompt template',
+        templateNote1: 'Use the following format for cleaner results and more accurate question counts:',
+        templateText: 'Create questions for grade [GRADE] for the subject [SUBJECT], topic [TOPIC], difficulty [LOW/MEDIUM/HIGH], with [MCQ COUNT] multiple choice questions up to option [D/E] and [ESSAY COUNT] essay questions, with [MCQ POINTS] points for multiple choice and [ESSAY POINTS] points for essay.',
+        templateNote2: 'This is a template. Replace the content inside square brackets to match your needs.',
+        useTemplate: 'Use this template',
+        promptLabel: 'Instruction',
+        promptPlaceholder: 'Write your quiz generation request here...',
+        modeLabel: 'Output',
+        modeFormOption: 'Google Form Quiz',
+        modeWordOption: 'Word File (.docx)',
+        submit: 'Generate',
+        loadingTitleIdle: 'Processing request',
+        loadingSubtitleIdle: 'The system is preparing the prompt and contacting the AI.',
+        progressLabelIdle: 'Preparing process',
+        batchTitle: 'Batch progress',
+        batchStatusIdle: 'Estimating batch count from prompt...',
+        outputWord: 'Word document',
+        outputForm: 'Google Form',
+        stageAnalyze: 'Analyzing the prompt and question count rules',
+        stageBatchMulti: 'Building smaller AI batches for large requests',
+        stageBatchSingle: 'Preparing a single AI batch',
+        stageWordCompose: 'Combining results and building the Word document',
+        stageFormSend: 'Sending the result to Google Forms',
+        stageWordReady: 'Preparing final files for download',
+        stageFormReady: 'Finishing editor and view links',
+        preparingProcess: 'Preparing process',
+        preparingPrompt: 'The system is preparing the prompt and contacting the AI.',
+        estimateMulti: (batchCount, pg, esai) => 'Estimated ' + batchCount + ' AI batches for ' + pg + ' multiple choice and ' + esai + ' essay questions.',
+        estimateSingle: 'The request is being processed in a single AI batch.',
+        processingBatch: (batchDisplay, batchCount) => 'Processing batch ' + batchDisplay + ' of ' + batchCount + '.',
+        processingDirect: 'The request is being processed directly by the AI.',
+        batchProgressMulti: (batchDisplay, batchCount) => 'Estimated batch progress: batch ' + batchDisplay + ' / ' + batchCount,
+        batchProgressSingle: 'Estimated batch progress: 1 / 1',
+        done: 'Done',
+        operationDone: 'Operation completed.',
+        processingAiBatch: 'Processing AI batch',
+        wordPreparingDownload: 'The document is ready. Preparing downloads.',
+        asyncRunning: 'The async job is running on the server. You can stay on this page.',
+        actualBatchProgress: (doneCount, totalCount) => 'Actual batch progress: ' + doneCount + ' / ' + totalCount,
+        downloadWordFailed: 'Failed to download the Word output.',
+        fetchWordJobFailed: 'Failed to fetch the Word job status.',
+        watchWordJobFailed: 'Failed to monitor the Word job.',
+        wordJobFailed: 'The Word job failed.',
+        wordLargeDone: 'The large Word document has been assembled.',
+        twoFilesReadyStatus: 'Two Word files are ready. Download the question sheet and answer key separately.',
+        twoFilesReadyLine: 'Two Word files are ready for download.',
+        downloadQuestions: 'Download Questions',
+        downloadAnswerKey: 'Download Answer Key',
+        serverError: 'A server error occurred.',
+        authStateInvalid: 'The Google login session expired or is invalid. Please connect Google again.',
+        authSuccess: 'Google account connected successfully.',
+        authLogout: 'Google session disconnected.',
+        instructionRequired: 'Instruction cannot be empty.',
+        connectGoogleFirst: 'Connect your Google account first.',
+        requestProcessing: 'Your request is being processed. This may take a few seconds.',
+        authRequired: 'Google authentication is required.',
+        asyncStartFailed: 'Failed to start the async Word job.',
+        asyncQueued: 'The large request has been queued as an async job. The system will process it batch by batch.',
+        requestFailed: 'Failed to process the request.',
+        quizCreated: 'Quiz created successfully.',
+        questionCount: (count) => 'Question count: ' + count,
+        pointScheme: (value) => 'Point scheme: ' + value,
+        chunkedNote: 'Large requests are processed in multiple AI batches and then merged.',
+        openEditor: 'Open Editor',
+        openView: 'Open View',
+        formFinished: 'Google Form created successfully.',
+        templateInserted: 'The prompt template has been inserted into the instruction field.',
+        languageId: 'Bahasa Indonesia',
+        languageEn: 'English'
+      }
+    };
 
     let isAuthenticated = false;
     let loadingTimer = null;
     let loadingState = null;
     let activeJobPoll = null;
+    let currentLanguage = localStorage.getItem('hqb_lang') || 'id';
+
+    function t(key, ...args) {
+      const pack = translations[currentLanguage] || translations.id;
+      const value = pack[key];
+      if (typeof value === 'function') return value(...args);
+      return value || key;
+    }
+
+    function applyLanguage() {
+      document.documentElement.lang = currentLanguage === 'en' ? 'en' : 'id';
+      document.title = t('pageTitle');
+      document.getElementById('badge-text').textContent = t('badgeText');
+      document.getElementById('hero-title').textContent = t('heroTitle');
+      document.getElementById('hero-lead').textContent = t('heroLead');
+      document.getElementById('prompt-format-title').textContent = t('promptFormatTitle');
+      document.getElementById('tip-1').textContent = t('tip1');
+      document.getElementById('tip-2').textContent = t('tip2');
+      document.getElementById('tip-3').textContent = t('tip3');
+      document.getElementById('connect-btn').textContent = t('connectGoogle');
+      document.getElementById('logout-btn').textContent = t('disconnectSession');
+      document.getElementById('template-title').textContent = t('templateTitle');
+      document.getElementById('template-note-1').textContent = t('templateNote1');
+      document.getElementById('prompt-template').textContent = t('templateText');
+      document.getElementById('template-note-2').textContent = t('templateNote2');
+      document.getElementById('use-template-btn').textContent = t('useTemplate');
+      document.getElementById('prompt-label').textContent = t('promptLabel');
+      document.getElementById('prompt').placeholder = t('promptPlaceholder');
+      document.getElementById('mode-label').textContent = t('modeLabel');
+      document.getElementById('mode-form-option').textContent = t('modeFormOption');
+      document.getElementById('mode-word-option').textContent = t('modeWordOption');
+      document.getElementById('submit-btn').textContent = t('submit');
+      document.getElementById('loading-title').textContent = t('loadingTitleIdle');
+      document.getElementById('loading-subtitle').textContent = t('loadingSubtitleIdle');
+      document.getElementById('progress-label').textContent = t('progressLabelIdle');
+      document.getElementById('batch-title').textContent = t('batchTitle');
+      document.getElementById('batch-status').textContent = t('batchStatusIdle');
+      langIdButton.textContent = t('languageId');
+      langEnButton.textContent = t('languageEn');
+      langIdButton.disabled = currentLanguage === 'id';
+      langEnButton.disabled = currentLanguage === 'en';
+
+      const sessionPayload = { authenticated: isAuthenticated };
+      applyAuthState(sessionPayload);
+    }
+
+    function switchLanguage(nextLanguage) {
+      currentLanguage = nextLanguage === 'en' ? 'en' : 'id';
+      localStorage.setItem('hqb_lang', currentLanguage);
+      applyLanguage();
+    }
 
     function setStatus(message, kind = '') {
       statusBox.textContent = message;
@@ -470,7 +702,7 @@ HTML_PAGE = r"""<!doctype html>
     function startLoadingAnimation(mode, prompt) {
       const estimate = estimateBatchCount(prompt);
       const batchCount = estimate.batchCount;
-      const outputLabel = mode === 'word' ? 'dokumen Word' : 'Google Form';
+      const outputLabel = mode === 'word' ? t('outputWord') : t('outputForm');
 
       loadingState = {
         mode,
@@ -479,23 +711,23 @@ HTML_PAGE = r"""<!doctype html>
         counts: estimate.counts,
         stageCursor: 0,
         stages: [
-          'Menganalisis prompt dan aturan jumlah soal',
-          batchCount > 1 ? 'Menyusun batch AI kecil agar request besar tetap stabil' : 'Menyiapkan satu batch AI',
-          mode === 'word' ? 'Menggabungkan hasil dan membentuk file Word' : 'Mengirim hasil ke Google Forms',
-          mode === 'word' ? 'Menyiapkan file akhir untuk diunduh' : 'Menyelesaikan tautan editor dan view'
+          t('stageAnalyze'),
+          batchCount > 1 ? t('stageBatchMulti') : t('stageBatchSingle'),
+          mode === 'word' ? t('stageWordCompose') : t('stageFormSend'),
+          mode === 'word' ? t('stageWordReady') : t('stageFormReady')
         ]
       };
 
-      loadingTitle.textContent = 'Sedang membuat ' + outputLabel;
+      loadingTitle.textContent = (currentLanguage === 'en' ? 'Creating ' : 'Sedang membuat ') + outputLabel;
       loadingOverlay.classList.remove('hidden');
       updateLoadingUI(
         12,
-        'Menyiapkan proses',
-        'Sistem sedang menyiapkan prompt dan menghubungi AI.',
+        t('preparingProcess'),
+        t('preparingPrompt'),
         0,
         batchCount > 1
-          ? 'Estimasi ' + batchCount + ' batch AI untuk ' + (estimate.counts.pg || 0) + ' PG dan ' + (estimate.counts.esai || 0) + ' esai.'
-          : 'Permintaan diproses dalam satu batch AI.'
+          ? t('estimateMulti', batchCount, estimate.counts.pg || 0, estimate.counts.esai || 0)
+          : t('estimateSingle')
       );
 
       let tick = 0;
@@ -510,11 +742,11 @@ HTML_PAGE = r"""<!doctype html>
         const progressBase = [12, 34, 62, 82][stageIndex] || 12;
         const progressBump = Math.min(10, (tick % 3) * 3);
         const subtitle = loadingState.batchCount > 1
-          ? 'Sedang memproses batch ' + batchDisplay + ' dari ' + loadingState.batchCount + '.'
-          : 'Permintaan sedang diproses langsung ke AI.';
+          ? t('processingBatch', batchDisplay, loadingState.batchCount)
+          : t('processingDirect');
         const batchText = loadingState.batchCount > 1
-          ? 'Progress batch estimasi: batch ' + batchDisplay + ' / ' + loadingState.batchCount
-          : 'Progress batch estimasi: 1 / 1';
+          ? t('batchProgressMulti', batchDisplay, loadingState.batchCount)
+          : t('batchProgressSingle');
 
         updateLoadingUI(
           progressBase + progressBump,
@@ -528,7 +760,7 @@ HTML_PAGE = r"""<!doctype html>
 
     function finishLoadingAnimation(successMessage) {
       if (!loadingState) return;
-      updateLoadingUI(100, 'Selesai', successMessage, loadingState.stages.length, 'Operasi selesai.');
+      updateLoadingUI(100, t('done'), successMessage, loadingState.stages.length, t('operationDone'));
       clearInterval(loadingTimer);
       setTimeout(() => {
         loadingOverlay.classList.add('hidden');
@@ -557,12 +789,12 @@ HTML_PAGE = r"""<!doctype html>
 
       updateLoadingUI(
         progressValue,
-        payload.current_step || 'Memproses batch AI',
+        payload.current_step || t('processingAiBatch'),
         payload.status === 'done'
-          ? 'Dokumen selesai dibuat. Menyiapkan unduhan.'
-          : 'Job async sedang berjalan di server. Anda bisa menunggu di halaman ini.',
+          ? t('wordPreparingDownload')
+          : t('asyncRunning'),
         stageIndex,
-        'Progress batch aktual: ' + completedBatches + ' / ' + totalBatches
+        t('actualBatchProgress', completedBatches, totalBatches)
       );
     }
 
@@ -570,7 +802,7 @@ HTML_PAGE = r"""<!doctype html>
       const response = await fetch(downloadUrl);
       const payload = response.ok ? null : await readResponsePayload(response);
       if (!response.ok) {
-        throw new Error((payload && payload.error) || 'Gagal mengunduh hasil Word.');
+        throw new Error((payload && payload.error) || t('downloadWordFailed'));
       }
       const blob = await response.blob();
       const fileName = response.headers.get('X-File-Name') || 'quiz_result.docx';
@@ -588,27 +820,27 @@ HTML_PAGE = r"""<!doctype html>
         const response = await fetch(statusUrl);
         const payload = await readResponsePayload(response);
         if (!response.ok) {
-          throw new Error(payload.error || 'Gagal mengambil status job Word.');
+          throw new Error(payload.error || t('fetchWordJobFailed'));
         }
 
         updateAsyncJobLoading(payload);
 
         if (payload.status === 'failed') {
           stopLoadingAnimation();
-          setStatus(payload.error || 'Job Word gagal diproses.', 'error');
+          setStatus(payload.error || t('wordJobFailed'), 'error');
           return;
         }
 
         if (payload.status === 'done') {
           const questionsFile = await downloadFile(payload.download_questions_url);
           const answerKeyFile = await downloadFile(payload.download_answer_key_url);
-          finishLoadingAnimation('Dokumen Word besar selesai disusun.');
-          setStatus('Dua file Word berhasil disiapkan. Unduh file soal dan kunci jawaban secara terpisah.');
+          finishLoadingAnimation(t('wordLargeDone'));
+          setStatus(t('twoFilesReadyStatus'));
           showResultHtml(
-            '<div class="result-line">Dua file Word sudah siap diunduh.</div>' +
+            '<div class="result-line">' + t('twoFilesReadyLine') + '</div>' +
             '<div class="result-links">' +
-              '<a class="button-link secondary" href="' + questionsFile.url + '" download="' + questionsFile.fileName + '">Unduh Soal</a>' +
-              '<a class="button-link" href="' + answerKeyFile.url + '" download="' + answerKeyFile.fileName + '">Unduh Kunci Jawaban</a>' +
+              '<a class="button-link secondary" href="' + questionsFile.url + '" download="' + questionsFile.fileName + '">' + t('downloadQuestions') + '</a>' +
+              '<a class="button-link" href="' + answerKeyFile.url + '" download="' + answerKeyFile.fileName + '">' + t('downloadAnswerKey') + '</a>' +
             '</div>'
           );
           return;
@@ -617,7 +849,7 @@ HTML_PAGE = r"""<!doctype html>
         activeJobPoll = setTimeout(() => pollWordJob(statusUrl), 1200);
       } catch (error) {
         stopLoadingAnimation();
-        setStatus(error.message || 'Gagal memantau job Word.', 'error');
+        setStatus(error.message || t('watchWordJobFailed'), 'error');
       }
     }
 
@@ -630,20 +862,20 @@ HTML_PAGE = r"""<!doctype html>
       try {
         return JSON.parse(rawText);
       } catch (error) {
-        return { error: rawText || 'Terjadi kesalahan server.' };
+        return { error: rawText || t('serverError') };
       }
     }
 
     function applyAuthState(payload) {
       isAuthenticated = Boolean(payload && payload.authenticated);
       submitButton.disabled = !isAuthenticated;
-      authPill.textContent = isAuthenticated ? 'Status Google: terhubung' : 'Status Google: belum terhubung';
+      authPill.textContent = isAuthenticated ? t('authConnected') : t('authDisconnected');
       authPill.className = 'pill ' + (isAuthenticated ? 'good' : 'warn');
       connectButton.classList.toggle('hidden', isAuthenticated);
       logoutButton.classList.toggle('hidden', !isAuthenticated);
       authNote.textContent = isAuthenticated
-        ? 'Akun Google sudah terhubung. Form akan dibuat di akun Google Anda.'
-        : 'Login Google diperlukan agar form dibuat di akun Google milik Anda sendiri.';
+        ? t('authNoteConnected')
+        : t('authNoteDisconnected');
       authNote.className = 'status ' + (isAuthenticated ? '' : 'warn');
     }
 
@@ -651,11 +883,11 @@ HTML_PAGE = r"""<!doctype html>
       const params = new URLSearchParams(window.location.search);
       const authStatus = params.get('auth');
       if (authStatus === 'state-invalid') {
-        setStatus('Sesi login Google kedaluwarsa atau tidak cocok. Silakan hubungkan Google lagi.', 'warn');
+        setStatus(t('authStateInvalid'), 'warn');
       } else if (authStatus === 'success') {
-        setStatus('Akun Google berhasil terhubung.');
+        setStatus(t('authSuccess'));
       } else if (authStatus === 'logout') {
-        setStatus('Sesi Google sudah diputus.');
+        setStatus(t('authLogout'));
       }
     }
 
@@ -676,16 +908,16 @@ HTML_PAGE = r"""<!doctype html>
       const mode = document.getElementById('mode').value;
 
       if (!prompt) {
-        setStatus('Instruksi tidak boleh kosong.', 'error');
+        setStatus(t('instructionRequired'), 'error');
         return;
       }
       if (!isAuthenticated) {
-        setStatus('Hubungkan akun Google terlebih dahulu.', 'warn');
+        setStatus(t('connectGoogleFirst'), 'warn');
         return;
       }
 
       submitButton.disabled = true;
-      setStatus('Permintaan sedang diproses. Ini bisa memakan beberapa detik.');
+      setStatus(t('requestProcessing'));
       startLoadingAnimation(mode, prompt);
 
       try {
@@ -701,15 +933,15 @@ HTML_PAGE = r"""<!doctype html>
             window.location.href = payload.auth_url;
             return;
           }
-          throw new Error(payload.error || 'Autentikasi Google diperlukan.');
+          throw new Error(payload.error || t('authRequired'));
         }
 
         if (response.status === 202) {
           const payload = await readResponsePayload(response);
           if (!response.ok) {
-            throw new Error(payload.error || 'Gagal memulai job Word async.');
+            throw new Error(payload.error || t('asyncStartFailed'));
           }
-          setStatus('Permintaan besar dimasukkan ke job async. Sistem akan memproses per batch.');
+          setStatus(t('asyncQueued'));
           updateAsyncJobLoading(payload);
           pollWordJob(payload.status_url);
           return;
@@ -718,42 +950,42 @@ HTML_PAGE = r"""<!doctype html>
         if (mode === 'word' && response.ok) {
           const payload = await readResponsePayload(response);
           if (!response.ok) {
-            throw new Error(payload.error || 'Terjadi kesalahan server.');
+            throw new Error(payload.error || t('serverError'));
           }
           const questionsFile = await downloadFile(payload.download_questions_url);
           const answerKeyFile = await downloadFile(payload.download_answer_key_url);
-          setStatus('Dua file Word berhasil disiapkan. Unduh file soal dan kunci jawaban secara terpisah.');
+          setStatus(t('twoFilesReadyStatus'));
           showResultHtml(
-            '<div class="result-line">Dua file Word sudah siap diunduh.</div>' +
+            '<div class="result-line">' + t('twoFilesReadyLine') + '</div>' +
             '<div class="result-links">' +
-              '<a class="button-link secondary" href="' + questionsFile.url + '" download="' + questionsFile.fileName + '">Unduh Soal</a>' +
-              '<a class="button-link" href="' + answerKeyFile.url + '" download="' + answerKeyFile.fileName + '">Unduh Kunci Jawaban</a>' +
+              '<a class="button-link secondary" href="' + questionsFile.url + '" download="' + questionsFile.fileName + '">' + t('downloadQuestions') + '</a>' +
+              '<a class="button-link" href="' + answerKeyFile.url + '" download="' + answerKeyFile.fileName + '">' + t('downloadAnswerKey') + '</a>' +
             '</div>'
           );
-          finishLoadingAnimation('Dokumen selesai disusun.');
+          finishLoadingAnimation(t('wordPreparingDownload'));
           return;
         }
 
         const payload = await readResponsePayload(response);
         if (!response.ok) {
-          throw new Error(payload.error || 'Terjadi kesalahan server.');
+          throw new Error(payload.error || t('serverError'));
         }
 
-        setStatus('Quiz berhasil dibuat.');
+        setStatus(t('quizCreated'));
         showResultHtml(
           '<strong>' + payload.title + '</strong>' +
-          '<div class="result-line">Jumlah soal: ' + payload.question_count + '</div>' +
-          '<div class="result-line">Skema poin: ' + payload.points_summary + '</div>' +
-          (payload.chunked_generation ? '<div class="result-line">Permintaan besar diproses dalam beberapa batch AI lalu digabung.</div>' : '') +
+          '<div class="result-line">' + t('questionCount', payload.question_count) + '</div>' +
+          '<div class="result-line">' + t('pointScheme', payload.points_summary) + '</div>' +
+          (payload.chunked_generation ? '<div class="result-line">' + t('chunkedNote') + '</div>' : '') +
           '<div class="result-links">' +
-            '<a class="button-link secondary" href="' + payload.edit_url + '" target="_blank" rel="noopener noreferrer">Buka Editor</a>' +
-            '<a class="button-link" href="' + payload.view_url + '" target="_blank" rel="noopener noreferrer">Buka View</a>' +
+            '<a class="button-link secondary" href="' + payload.edit_url + '" target="_blank" rel="noopener noreferrer">' + t('openEditor') + '</a>' +
+            '<a class="button-link" href="' + payload.view_url + '" target="_blank" rel="noopener noreferrer">' + t('openView') + '</a>' +
           '</div>'
         );
-        finishLoadingAnimation('Google Form selesai dibuat.');
+        finishLoadingAnimation(t('formFinished'));
       } catch (error) {
         stopLoadingAnimation();
-        setStatus(error.message || 'Gagal memproses permintaan.', 'error');
+        setStatus(error.message || t('requestFailed'), 'error');
       } finally {
         submitButton.disabled = !isAuthenticated;
       }
@@ -764,9 +996,13 @@ HTML_PAGE = r"""<!doctype html>
       promptBox.value = promptTemplateBox.textContent.trim();
       promptBox.focus();
       promptBox.setSelectionRange(promptBox.value.length, promptBox.value.length);
-      setStatus('Template prompt dimasukkan ke kolom instruksi.');
+      setStatus(t('templateInserted'));
     });
 
+    langIdButton.addEventListener('click', () => switchLanguage('id'));
+    langEnButton.addEventListener('click', () => switchLanguage('en'));
+
+    applyLanguage();
     showAuthQueryMessage();
     loadSession();
   </script>
