@@ -16,6 +16,8 @@ Project ini sekarang punya 3 jalur penggunaan:
    - `GOOGLE_CLIENT_SECRET_JSON`
    - `APP_BASE_URL`
    - `APP_SECRET`
+   - `JOB_TTL_SECONDS` (opsional, default: `3600`)
+   - `CRON_SECRET`
 4. Deploy.
 
 Setelah deploy, halaman web tersedia di route `/` dan endpoint generate ada di `/api/generate`.
@@ -43,12 +45,16 @@ https://ai-forms.vercel.app
 ```
 
 5. Isi `APP_SECRET` dengan string acak panjang untuk signing cookie sesi.
+6. Isi `CRON_SECRET` dengan string acak panjang untuk mengamankan endpoint cleanup cron.
 
 Catatan penting:
 
 - Redirect URI harus sama persis dengan yang didaftarkan di Google.
 - Website tidak lagi memakai `token.json` global untuk flow web.
 - `GOOGLE_TOKEN_JSON` masih bisa dipakai untuk mode lokal CLI jika Anda ingin mempertahankannya.
+- File hasil Word web disimpan sementara di `/tmp` dan otomatis dianggap kedaluwarsa sesuai `JOB_TTL_SECONDS`.
+- Repo ini sudah menyiapkan endpoint cron `/api/cron/cleanup-jobs` untuk menghapus file/job yang kedaluwarsa.
+- Pada Vercel Hobby, cron hanya bisa jalan 1 kali per hari. Jadi cleanup tetap dibantu oleh pengecekan otomatis saat ada request masuk. Jika ingin cleanup tiap 30 menit atau 1 jam, gunakan Vercel Pro lalu ubah schedule cron.
 
 ## Catatan Netlify
 

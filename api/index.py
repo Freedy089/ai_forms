@@ -4,7 +4,6 @@ import hmac
 import json
 import os
 import secrets
-import zipfile
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -13,16 +12,30 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 
 import config
-from agent import generate_quiz_from_prompt
+from agent import (
+    build_batch_user_prompt,
+    build_form_title,
+    build_chunk_count_configs,
+    extract_requested_counts,
+    extract_requested_points,
+    format_counts_summary,
+    format_points_summary,
+    generate_quiz_from_prompt,
+    generate_single_batch_quiz_data,
+    should_chunk_large_request,
+    validate_question_counts,
+)
+from docx_generator import generate_docx_file
 from google_services import SCOPES
 
 
 AUTH_COOKIE_NAME = "hqb_google_creds"
 STATE_COOKIE_NAME = "hqb_oauth_state"
 COOKIE_MAX_AGE = 60 * 60 * 24 * 7
+ASYNC_WORD_THRESHOLD = 30
 
 
-HTML_PAGE = """<!doctype html>
+HTML_PAGE = r"""<!doctype html>
 <html lang="id">
 <head>
   <meta charset="utf-8" />
@@ -370,6 +383,7 @@ HTML_PAGE = """<!doctype html>
     let isAuthenticated = false;
     let loadingTimer = null;
     let loadingState = null;
+    let activeJobPoll = null;
 
     function setStatus(message, kind = '') {
       statusBox.textContent = message;
@@ -529,6 +543,84 @@ HTML_PAGE = """<!doctype html>
       loadingOverlay.classList.add('hidden');
     }
 
+    function updateAsyncJobLoading(payload) {
+      const totalBatches = payload.total_batches || 1;
+      const completedBatches = payload.completed_batches || 0;
+      const progressValue = payload.progress_percent || 12;
+      const stageIndex = payload.status === 'done'
+        ? 4
+        : payload.status === 'finalizing'
+          ? 3
+          : payload.status === 'processing'
+            ? 1
+            : 0;
+
+      updateLoadingUI(
+        progressValue,
+        payload.current_step || 'Memproses batch AI',
+        payload.status === 'done'
+          ? 'Dokumen selesai dibuat. Menyiapkan unduhan.'
+          : 'Job async sedang berjalan di server. Anda bisa menunggu di halaman ini.',
+        stageIndex,
+        'Progress batch aktual: ' + completedBatches + ' / ' + totalBatches
+      );
+    }
+
+    async function downloadFile(downloadUrl) {
+      const response = await fetch(downloadUrl);
+      const payload = response.ok ? null : await readResponsePayload(response);
+      if (!response.ok) {
+        throw new Error((payload && payload.error) || 'Gagal mengunduh hasil Word.');
+      }
+      const blob = await response.blob();
+      const fileName = response.headers.get('X-File-Name') || 'quiz_result.docx';
+      const url = window.URL.createObjectURL(blob);
+      return { url, fileName };
+    }
+
+    async function pollWordJob(statusUrl) {
+      if (activeJobPoll) {
+        clearTimeout(activeJobPoll);
+        activeJobPoll = null;
+      }
+
+      try {
+        const response = await fetch(statusUrl);
+        const payload = await readResponsePayload(response);
+        if (!response.ok) {
+          throw new Error(payload.error || 'Gagal mengambil status job Word.');
+        }
+
+        updateAsyncJobLoading(payload);
+
+        if (payload.status === 'failed') {
+          stopLoadingAnimation();
+          setStatus(payload.error || 'Job Word gagal diproses.', 'error');
+          return;
+        }
+
+        if (payload.status === 'done') {
+          const questionsFile = await downloadFile(payload.download_questions_url);
+          const answerKeyFile = await downloadFile(payload.download_answer_key_url);
+          finishLoadingAnimation('Dokumen Word besar selesai disusun.');
+          setStatus('Dua file Word berhasil disiapkan. Unduh file soal dan kunci jawaban secara terpisah.');
+          showResultHtml(
+            '<div class="result-line">Dua file Word sudah siap diunduh.</div>' +
+            '<div class="result-links">' +
+              '<a class="button-link secondary" href="' + questionsFile.url + '" download="' + questionsFile.fileName + '">Unduh Soal</a>' +
+              '<a class="button-link" href="' + answerKeyFile.url + '" download="' + answerKeyFile.fileName + '">Unduh Kunci Jawaban</a>' +
+            '</div>'
+          );
+          return;
+        }
+
+        activeJobPoll = setTimeout(() => pollWordJob(statusUrl), 1200);
+      } catch (error) {
+        stopLoadingAnimation();
+        setStatus(error.message || 'Gagal memantau job Word.', 'error');
+      }
+    }
+
     async function readResponsePayload(response) {
       const contentType = response.headers.get('content-type') || '';
       const rawText = await response.text();
@@ -612,18 +704,33 @@ HTML_PAGE = """<!doctype html>
           throw new Error(payload.error || 'Autentikasi Google diperlukan.');
         }
 
+        if (response.status === 202) {
+          const payload = await readResponsePayload(response);
+          if (!response.ok) {
+            throw new Error(payload.error || 'Gagal memulai job Word async.');
+          }
+          setStatus('Permintaan besar dimasukkan ke job async. Sistem akan memproses per batch.');
+          updateAsyncJobLoading(payload);
+          pollWordJob(payload.status_url);
+          return;
+        }
+
         if (mode === 'word' && response.ok) {
-          const blob = await response.blob();
-          const fileName = response.headers.get('X-File-Name') || 'quiz_word_files.zip';
-          const url = window.URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = fileName;
-          link.click();
-          window.URL.revokeObjectURL(url);
-          setStatus('File Word berhasil dibuat dan download ZIP dimulai.');
-          showResultHtml('<div class="result-line">ZIP berisi dua file: naskah soal dan kunci jawaban.</div>');
-          finishLoadingAnimation('Dokumen Word besar selesai disusun.');
+          const payload = await readResponsePayload(response);
+          if (!response.ok) {
+            throw new Error(payload.error || 'Terjadi kesalahan server.');
+          }
+          const questionsFile = await downloadFile(payload.download_questions_url);
+          const answerKeyFile = await downloadFile(payload.download_answer_key_url);
+          setStatus('Dua file Word berhasil disiapkan. Unduh file soal dan kunci jawaban secara terpisah.');
+          showResultHtml(
+            '<div class="result-line">Dua file Word sudah siap diunduh.</div>' +
+            '<div class="result-links">' +
+              '<a class="button-link secondary" href="' + questionsFile.url + '" download="' + questionsFile.fileName + '">Unduh Soal</a>' +
+              '<a class="button-link" href="' + answerKeyFile.url + '" download="' + answerKeyFile.fileName + '">Unduh Kunci Jawaban</a>' +
+            '</div>'
+          );
+          finishLoadingAnimation('Dokumen selesai disusun.');
           return;
         }
 
@@ -756,6 +863,232 @@ def build_base_url(headers):
 
 def build_redirect_uri(headers):
     return f"{build_base_url(headers)}/auth/google/callback"
+
+
+def get_job_store_dir():
+    directory = os.path.join("/tmp" if os.getenv("VERCEL") else os.getcwd(), "job_store")
+    os.makedirs(directory, exist_ok=True)
+    return directory
+
+
+def get_job_ttl_seconds():
+    raw_ttl = getattr(config, "JOB_TTL_SECONDS", 3600)
+    try:
+        return max(60, int(raw_ttl))
+    except (TypeError, ValueError):
+        return 3600
+
+
+def now_timestamp():
+    import time
+    return int(time.time())
+
+
+def get_job_file_path(job_id):
+    safe_job_id = "".join(char for char in job_id if char.isalnum() or char in {"-", "_"})
+    return os.path.join(get_job_store_dir(), f"{safe_job_id}.json")
+
+
+def delete_file_if_exists(file_path):
+    if file_path and os.path.exists(file_path):
+        os.remove(file_path)
+
+
+def delete_job_artifacts(job_state):
+    word_files = job_state.get("word_files") or {}
+    delete_file_if_exists(word_files.get("questions_file_path"))
+    delete_file_if_exists(word_files.get("answer_key_file_path"))
+    delete_file_if_exists(get_job_file_path(job_state["job_id"]))
+
+
+def save_job_state(job_state):
+    with open(get_job_file_path(job_state["job_id"]), "w", encoding="utf-8") as job_file:
+        json.dump(job_state, job_file)
+
+
+def is_job_expired(job_state):
+    return now_timestamp() >= int(job_state.get("expires_at", 0))
+
+
+def load_job_state(job_id, delete_if_expired=True):
+    file_path = get_job_file_path(job_id)
+    if not os.path.exists(file_path):
+        return None
+    try:
+        with open(file_path, "r", encoding="utf-8") as job_file:
+            job_state = json.load(job_file)
+    except (OSError, json.JSONDecodeError):
+        delete_file_if_exists(file_path)
+        return None
+    if delete_if_expired and is_job_expired(job_state):
+        delete_job_artifacts(job_state)
+        return None
+    return job_state
+
+
+def cleanup_expired_jobs():
+    removed = 0
+    for file_name in os.listdir(get_job_store_dir()):
+        if not file_name.endswith(".json"):
+            continue
+        file_path = os.path.join(get_job_store_dir(), file_name)
+        try:
+            with open(file_path, "r", encoding="utf-8") as job_file:
+                job_state = json.load(job_file)
+        except (OSError, json.JSONDecodeError):
+            delete_file_if_exists(file_path)
+            removed += 1
+            continue
+        if is_job_expired(job_state):
+            delete_job_artifacts(job_state)
+            removed += 1
+    return removed
+
+
+def create_job_download_files(job_state):
+    return job_state["word_files"]
+
+
+def create_async_word_job(prompt):
+    point_config = extract_requested_points(prompt)
+    count_config = extract_requested_counts(prompt)
+    chunk_configs = build_chunk_count_configs(count_config)
+    job_id = secrets.token_urlsafe(12)
+    created_at = now_timestamp()
+    job_state = {
+        "job_id": job_id,
+        "prompt": prompt,
+        "point_config": point_config,
+        "count_config": count_config,
+        "chunk_configs": chunk_configs,
+        "completed_batches": 0,
+        "total_batches": len(chunk_configs),
+        "questions": [],
+        "title": None,
+        "points_summary": format_points_summary(point_config),
+        "counts_summary": format_counts_summary(count_config),
+        "status": "queued",
+        "current_step": "Masuk antrean batch AI",
+        "error": "",
+        "chunked_generation": True,
+        "word_files": None,
+        "created_at": created_at,
+        "expires_at": created_at + get_job_ttl_seconds()
+    }
+    save_job_state(job_state)
+    return job_state
+
+
+def create_completed_word_job(prompt, title, questions, point_config, count_config, word_files, chunked_generation=False):
+    job_id = secrets.token_urlsafe(12)
+    created_at = now_timestamp()
+    job_state = {
+        "job_id": job_id,
+        "prompt": prompt,
+        "point_config": point_config,
+        "count_config": count_config,
+        "chunk_configs": [],
+        "completed_batches": 0,
+        "total_batches": 0,
+        "questions": questions,
+        "title": title,
+        "points_summary": format_points_summary(point_config),
+        "counts_summary": format_counts_summary(count_config),
+        "status": "done",
+        "current_step": "Selesai",
+        "error": "",
+        "chunked_generation": chunked_generation,
+        "word_files": word_files,
+        "created_at": created_at,
+        "expires_at": created_at + get_job_ttl_seconds()
+    }
+    save_job_state(job_state)
+    return job_state
+
+
+def build_job_status_response(job_state, base_url):
+    progress_percent = 12
+    if job_state["status"] == "done":
+        progress_percent = 100
+    elif job_state["status"] == "finalizing":
+        progress_percent = 90
+    elif job_state["total_batches"] > 0:
+        progress_percent = min(88, 16 + int((job_state["completed_batches"] / job_state["total_batches"]) * 60))
+
+    payload = {
+        "job_id": job_state["job_id"],
+        "status": job_state["status"],
+        "current_step": job_state["current_step"],
+        "completed_batches": job_state["completed_batches"],
+        "total_batches": job_state["total_batches"],
+        "progress_percent": progress_percent,
+        "points_summary": job_state["points_summary"],
+        "counts_summary": job_state["counts_summary"],
+        "chunked_generation": job_state.get("chunked_generation", False),
+        "expires_at": job_state["expires_at"]
+    }
+    if job_state.get("title"):
+        payload["title"] = job_state["title"]
+    if job_state.get("error"):
+        payload["error"] = job_state["error"]
+    if job_state["status"] == "done":
+        payload["download_questions_url"] = f"{base_url}/api/jobs/{job_state['job_id']}/download/questions"
+        payload["download_answer_key_url"] = f"{base_url}/api/jobs/{job_state['job_id']}/download/answer-key"
+    return payload
+
+
+def advance_async_word_job(job_state):
+    if job_state["status"] in {"done", "failed"}:
+        return job_state
+
+    try:
+        next_batch_index = job_state["completed_batches"]
+        if next_batch_index < job_state["total_batches"]:
+            chunk_count_config = job_state["chunk_configs"][next_batch_index]
+            job_state["status"] = "processing"
+            job_state["current_step"] = f"Memproses batch {next_batch_index + 1} dari {job_state['total_batches']}"
+            save_job_state(job_state)
+
+            batch_prompt = build_batch_user_prompt(
+                job_state["prompt"],
+                chunk_count_config,
+                next_batch_index + 1,
+                job_state["total_batches"]
+            )
+            quiz_data, questions = generate_single_batch_quiz_data(
+                batch_prompt,
+                job_state["point_config"],
+                chunk_count_config
+            )
+            if not job_state.get("title"):
+                job_state["title"] = build_form_title(job_state["prompt"], quiz_data.get("judul", "Quiz"))
+            job_state["questions"].extend(questions)
+            job_state["completed_batches"] += 1
+
+        if job_state["completed_batches"] >= job_state["total_batches"]:
+            job_state["status"] = "finalizing"
+            job_state["current_step"] = "Menggabungkan batch dan menyusun dokumen Word"
+            validate_question_counts(job_state["questions"], job_state["count_config"])
+            job_state["word_files"] = generate_docx_file(job_state["title"] or "Quiz", job_state["questions"])
+            job_state["status"] = "done"
+            job_state["current_step"] = "Selesai"
+
+        save_job_state(job_state)
+        return job_state
+    except Exception as exc:
+        job_state["status"] = "failed"
+        job_state["error"] = str(exc)
+        job_state["current_step"] = "Job gagal"
+        save_job_state(job_state)
+        return job_state
+
+
+def is_cron_request_authorized(headers):
+    expected_secret = getattr(config, "CRON_SECRET", "") or ""
+    if not expected_secret:
+        return False
+    auth_header = headers.get("Authorization", "")
+    return secrets.compare_digest(auth_header, f"Bearer {expected_secret}")
 
 
 def build_flow(headers, state=None):
@@ -916,14 +1249,25 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self._normalized_path()
         try:
+            cleanup_expired_jobs()
             if path in ("/", "/index.html", "/api", "/api/"):
                 self._send_response(200, HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8")
                 return
             if path == "/health":
                 self._send_json(200, {"ok": True})
                 return
+            if path == "/api/cron/cleanup-jobs":
+                if not is_cron_request_authorized(self.headers):
+                    self._send_json(401, {"error": "Unauthorized"})
+                    return
+                removed_jobs = cleanup_expired_jobs()
+                self._send_json(200, {"ok": True, "removed_jobs": removed_jobs, "ttl_seconds": get_job_ttl_seconds()})
+                return
             if path == "/api/session":
                 self._send_session()
+                return
+            if path.startswith("/api/jobs/"):
+                self._handle_job_get(path)
                 return
             if path == "/auth/google/start":
                 self._start_google_auth()
@@ -946,6 +1290,7 @@ class handler(BaseHTTPRequestHandler):
             return
 
         try:
+            cleanup_expired_jobs()
             google_creds = self._current_google_creds()
             if google_creds is None:
                 self._send_json(
@@ -970,30 +1315,44 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "Mode output tidak valid."})
                 return
 
+            requested_counts = extract_requested_counts(prompt)
+            total_requested = (requested_counts["pg"] or 0) + (requested_counts["esai"] or 0)
+            if mode == "word" and total_requested > ASYNC_WORD_THRESHOLD and should_chunk_large_request(requested_counts):
+                job_state = create_async_word_job(prompt)
+                base_url = build_base_url(self.headers)
+                self._send_json(
+                    202,
+                    {
+                        **build_job_status_response(job_state, base_url),
+                        "status_url": f"{base_url}/api/jobs/{job_state['job_id']}"
+                    }
+                )
+                return
+
             result = generate_quiz_from_prompt(prompt, output_mode=mode, google_creds=google_creds)
 
             if mode == "word":
                 word_files = result["word_files"]
-                zip_file_name = "quiz_word_files.zip"
-                zip_file_path = os.path.join("/tmp" if os.getenv("VERCEL") else os.getcwd(), zip_file_name)
-
-                with zipfile.ZipFile(zip_file_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                    zip_file.write(
-                        word_files["questions_file_path"],
-                        arcname=os.path.basename(word_files["questions_file_path"])
-                    )
-                    zip_file.write(
-                        word_files["answer_key_file_path"],
-                        arcname=os.path.basename(word_files["answer_key_file_path"])
-                    )
-
-                with open(zip_file_path, "rb") as output_file:
-                    file_bytes = output_file.read()
-                self._send_response(
+                point_config = extract_requested_points(prompt)
+                count_config = extract_requested_counts(prompt)
+                job_state = create_completed_word_job(
+                    prompt=prompt,
+                    title=result["title"],
+                    questions=result["questions"],
+                    point_config=point_config,
+                    count_config=count_config,
+                    word_files=word_files,
+                    chunked_generation=result.get("chunked_generation", False)
+                )
+                base_url = build_base_url(self.headers)
+                self._send_json(
                     200,
-                    file_bytes,
-                    "application/zip",
-                    {"Content-Disposition": f'attachment; filename="{zip_file_name}"', "X-File-Name": zip_file_name}
+                    {
+                        **build_job_status_response(job_state, base_url),
+                        "title": result["title"],
+                        "question_count": len(result["questions"]),
+                        "status_url": f"{base_url}/api/jobs/{job_state['job_id']}"
+                    }
                 )
                 return
 
@@ -1013,3 +1372,49 @@ class handler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "Body request harus JSON yang valid."})
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
+
+    def _handle_job_get(self, path):
+        base_url = build_base_url(self.headers)
+        if "/download/" in path:
+            job_id = path.split("/api/jobs/", 1)[1].split("/download/", 1)[0]
+            file_kind = path.rsplit("/download/", 1)[1]
+            job_state = load_job_state(job_id)
+            if not job_state:
+                self._send_json(404, {"error": "Job tidak ditemukan atau sudah kedaluwarsa."})
+                return
+            if job_state["status"] != "done" or not job_state.get("word_files"):
+                self._send_json(409, {"error": "File hasil belum siap diunduh."})
+                return
+
+            word_files = create_job_download_files(job_state)
+            if file_kind == "questions":
+                target_path = word_files["questions_file_path"]
+            elif file_kind == "answer-key":
+                target_path = word_files["answer_key_file_path"]
+            else:
+                self._send_json(404, {"error": "Jenis file tidak ditemukan."})
+                return
+
+            with open(target_path, "rb") as output_file:
+                file_bytes = output_file.read()
+            self._send_response(
+                200,
+                file_bytes,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                {
+                    "Content-Disposition": f'attachment; filename="{os.path.basename(target_path)}"',
+                    "X-File-Name": os.path.basename(target_path)
+                }
+            )
+            return
+
+        job_id = path.split("/api/jobs/", 1)[1]
+        job_state = load_job_state(job_id)
+        if not job_state:
+            self._send_json(404, {"error": "Job tidak ditemukan atau sudah kedaluwarsa."})
+            return
+
+        if job_state["status"] not in {"done", "failed"}:
+            job_state = advance_async_word_job(job_state)
+
+        self._send_json(200, build_job_status_response(job_state, base_url))
