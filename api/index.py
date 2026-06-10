@@ -119,6 +119,29 @@ HTML_PAGE = r"""<!doctype html>
       white-space: pre-wrap;
       line-height: 1.6;
     }
+    .template-tabs {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .template-tab {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 10px 14px;
+      background: #fff;
+      color: var(--ink);
+    }
+    .template-tab.active {
+      color: white;
+      background: linear-gradient(135deg, var(--accent), #124c55);
+    }
+    .template-panel {
+      display: none;
+    }
+    .template-panel.active {
+      display: block;
+    }
     .loading-overlay {
       position: fixed;
       inset: 0;
@@ -310,13 +333,26 @@ HTML_PAGE = r"""<!doctype html>
         <div id="template-note-1" class="status-note" style="margin-top:8px;">
           Gunakan format berikut agar hasil lebih rapi dan jumlah soal sesuai:
         </div>
-        <div id="prompt-template" class="template-box">Buatkan soal untuk kelas [KELAS] dengan mata pelajaran [MATA PELAJARAN], materi [MATERI], tingkat kesulitan [RENDAH/SEDANG/TINGGI], dengan bentuk soal [JUMLAH PG] Pilihan Ganda sampai [D/E] dan [JUMLAH ESSAY] Essay, dengan poin Pilihan Ganda [POIN PG] poin dan Essay [POIN ESSAY] poin.</div>
-        <div id="survey-template" class="template-box" style="margin-top:10px;">Buatkan Google Form survey non-quiz untuk [TARGET RESPONDEN] tentang [TOPIK], berisi [JUMLAH PG] pertanyaan pilihan ganda dan [JUMLAH ESSAY] pertanyaan essay. Ini adalah survey, jadi jangan aktifkan quiz, jangan gunakan poin, dan jangan buat kunci jawaban.</div>
+        <div class="template-tabs">
+          <button id="template-tab-quiz" class="template-tab active" type="button">Quiz</button>
+          <button id="template-tab-word" class="template-tab" type="button">Word</button>
+          <button id="template-tab-survey" class="template-tab" type="button">Survey</button>
+        </div>
+        <div id="template-panel-quiz" class="template-panel active">
+          <div id="prompt-template" class="template-box">Buatkan soal untuk kelas [KELAS] dengan mata pelajaran [MATA PELAJARAN], materi [MATERI], tingkat kesulitan [RENDAH/SEDANG/TINGGI], dengan bentuk soal [JUMLAH PG] Pilihan Ganda sampai [D/E] dan [JUMLAH ESSAY] Essay, dengan poin Pilihan Ganda [POIN PG] poin dan Essay [POIN ESSAY] poin.</div>
+        </div>
+        <div id="template-panel-word" class="template-panel">
+          <div id="word-template" class="template-box">Buatkan file Word untuk kelas [KELAS] dengan mata pelajaran [MATA PELAJARAN], materi [MATERI], tingkat kesulitan [RENDAH/SEDANG/TINGGI], dengan bentuk soal [JUMLAH PG] Pilihan Ganda sampai [D/E] dan [JUMLAH ESSAY] Essay, dengan poin Pilihan Ganda [POIN PG] poin dan Essay [POIN ESSAY] poin. Output dalam format Word (.docx).</div>
+        </div>
+        <div id="template-panel-survey" class="template-panel">
+          <div id="survey-template" class="template-box">Buatkan Google Form survey non-quiz untuk [TARGET RESPONDEN] tentang [TOPIK], berisi [JUMLAH PG] pertanyaan pilihan ganda dan [JUMLAH ESSAY] pertanyaan essay. Ini adalah survey, jadi jangan aktifkan quiz, jangan gunakan poin, dan jangan buat kunci jawaban.</div>
+        </div>
         <div id="template-note-2" class="status-note" style="margin-top:10px;">
           Format ini adalah template. Ganti bagian dalam tanda kurung siku sesuai kebutuhan Anda.
         </div>
         <div style="margin-top:12px;">
-          <button id="use-template-btn" type="button">Gunakan template ini</button>
+          <button id="use-template-btn" type="button">Gunakan Template Quiz</button>
+          <button id="use-word-template-btn" type="button">Gunakan Template Word</button>
           <button id="use-survey-template-btn" type="button">Gunakan template survey</button>
         </div>
       </div>
@@ -375,8 +411,16 @@ HTML_PAGE = r"""<!doctype html>
     const resultBox = document.getElementById('result');
     const submitButton = document.getElementById('submit-btn');
     const useTemplateButton = document.getElementById('use-template-btn');
+    const useWordTemplateButton = document.getElementById('use-word-template-btn');
     const useSurveyTemplateButton = document.getElementById('use-survey-template-btn');
+    const templateTabQuiz = document.getElementById('template-tab-quiz');
+    const templateTabWord = document.getElementById('template-tab-word');
+    const templateTabSurvey = document.getElementById('template-tab-survey');
+    const templatePanelQuiz = document.getElementById('template-panel-quiz');
+    const templatePanelWord = document.getElementById('template-panel-word');
+    const templatePanelSurvey = document.getElementById('template-panel-survey');
     const promptTemplateBox = document.getElementById('prompt-template');
+    const wordTemplateBox = document.getElementById('word-template');
     const surveyTemplateBox = document.getElementById('survey-template');
     const authPill = document.getElementById('auth-pill');
     const authNote = document.getElementById('auth-note');
@@ -412,10 +456,15 @@ HTML_PAGE = r"""<!doctype html>
         authNoteDisconnected: 'Login Google diperlukan agar form dibuat di akun Google milik Anda sendiri.',
         templateTitle: 'Template prompt',
         templateNote1: 'Gunakan format berikut agar hasil lebih rapi dan jumlah soal sesuai:',
+        templateTabQuiz: 'Quiz',
+        templateTabWord: 'Word',
+        templateTabSurvey: 'Survey',
         templateText: 'Buatkan soal untuk kelas [KELAS] dengan mata pelajaran [MATA PELAJARAN], materi [MATERI], tingkat kesulitan [RENDAH/SEDANG/TINGGI], dengan bentuk soal [JUMLAH PG] Pilihan Ganda sampai [D/E] dan [JUMLAH ESSAY] Essay, dengan poin Pilihan Ganda [POIN PG] poin dan Essay [POIN ESSAY] poin.',
+        wordTemplateText: 'Buatkan file Word untuk kelas [KELAS] dengan mata pelajaran [MATA PELAJARAN], materi [MATERI], tingkat kesulitan [RENDAH/SEDANG/TINGGI], dengan bentuk soal [JUMLAH PG] Pilihan Ganda sampai [D/E] dan [JUMLAH ESSAY] Essay, dengan poin Pilihan Ganda [POIN PG] poin dan Essay [POIN ESSAY] poin. Output dalam format Word (.docx).',
         surveyTemplateText: 'Buatkan Google Form survey non-quiz untuk [TARGET RESPONDEN] tentang [TOPIK], berisi [JUMLAH PG] pertanyaan pilihan ganda dan [JUMLAH ESSAY] pertanyaan essay. Ini adalah survey, jadi jangan aktifkan quiz, jangan gunakan poin, dan jangan buat kunci jawaban.',
         templateNote2: 'Format ini adalah template. Ganti bagian dalam tanda kurung siku sesuai kebutuhan Anda.',
-        useTemplate: 'Gunakan template ini',
+        useTemplate: 'Gunakan Template Quiz',
+        useWordTemplate: 'Gunakan Template Word',
         useSurveyTemplate: 'Gunakan template survey',
         promptLabel: 'Instruksi',
         promptPlaceholder: 'Tulis permintaan pembuatan soal di sini...',
@@ -480,6 +529,7 @@ HTML_PAGE = r"""<!doctype html>
         openView: 'Buka View',
         formFinished: 'Google Form selesai dibuat.',
         templateInserted: 'Template prompt dimasukkan ke kolom instruksi.',
+        wordTemplateInserted: 'Template Word dimasukkan ke kolom instruksi.',
         surveyTemplateInserted: 'Template survey dimasukkan ke kolom instruksi.',
         resultTypeQuiz: 'Tipe form: Quiz',
         resultTypeSurvey: 'Tipe form: Survey',
@@ -504,10 +554,15 @@ HTML_PAGE = r"""<!doctype html>
         authNoteDisconnected: 'Google sign-in is required so the form is created in your own Google account.',
         templateTitle: 'Prompt template',
         templateNote1: 'Use the following format for cleaner results and more accurate question counts:',
+        templateTabQuiz: 'Quiz',
+        templateTabWord: 'Word',
+        templateTabSurvey: 'Survey',
         templateText: 'Create questions for grade [GRADE] for the subject [SUBJECT], topic [TOPIC], difficulty [LOW/MEDIUM/HIGH], with [MCQ COUNT] multiple choice questions up to option [D/E] and [ESSAY COUNT] essay questions, with [MCQ POINTS] points for multiple choice and [ESSAY POINTS] points for essay.',
+        wordTemplateText: 'Create a Word file for grade [GRADE] for the subject [SUBJECT], topic [TOPIC], difficulty [LOW/MEDIUM/HIGH], with [MCQ COUNT] multiple choice questions up to option [D/E] and [ESSAY COUNT] essay questions, with [MCQ POINTS] points for multiple choice and [ESSAY POINTS] points for essay. Output in Word (.docx) format.',
         surveyTemplateText: 'Create a non-quiz Google Form survey for [TARGET RESPONDENTS] about [TOPIC], containing [MCQ COUNT] multiple choice questions and [ESSAY COUNT] essay questions. This is a survey, so do not enable quiz mode, do not use points, and do not create answer keys.',
         templateNote2: 'This is a template. Replace the content inside square brackets to match your needs.',
-        useTemplate: 'Use this template',
+        useTemplate: 'Use Quiz Template',
+        useWordTemplate: 'Use Word Template',
         useSurveyTemplate: 'Use survey template',
         promptLabel: 'Instruction',
         promptPlaceholder: 'Write your quiz generation request here...',
@@ -572,6 +627,7 @@ HTML_PAGE = r"""<!doctype html>
         openView: 'Open View',
         formFinished: 'Google Form created successfully.',
         templateInserted: 'The prompt template has been inserted into the instruction field.',
+        wordTemplateInserted: 'The Word template has been inserted into the instruction field.',
         surveyTemplateInserted: 'The survey template has been inserted into the instruction field.',
         resultTypeQuiz: 'Form type: Quiz',
         resultTypeSurvey: 'Form type: Survey',
@@ -615,10 +671,15 @@ HTML_PAGE = r"""<!doctype html>
       document.getElementById('logout-btn').textContent = t('disconnectSession');
       document.getElementById('template-title').textContent = t('templateTitle');
       document.getElementById('template-note-1').textContent = t('templateNote1');
+      templateTabQuiz.textContent = t('templateTabQuiz');
+      templateTabWord.textContent = t('templateTabWord');
+      templateTabSurvey.textContent = t('templateTabSurvey');
       document.getElementById('prompt-template').textContent = t('templateText');
+      document.getElementById('word-template').textContent = t('wordTemplateText');
       document.getElementById('survey-template').textContent = t('surveyTemplateText');
       document.getElementById('template-note-2').textContent = t('templateNote2');
       document.getElementById('use-template-btn').textContent = t('useTemplate');
+      document.getElementById('use-word-template-btn').textContent = t('useWordTemplate');
       document.getElementById('use-survey-template-btn').textContent = t('useSurveyTemplate');
       document.getElementById('prompt-label').textContent = t('promptLabel');
       document.getElementById('prompt').placeholder = t('promptPlaceholder');
@@ -638,6 +699,19 @@ HTML_PAGE = r"""<!doctype html>
 
       const sessionPayload = { authenticated: isAuthenticated };
       applyAuthState(sessionPayload);
+    }
+
+    function activateTemplateTab(tabName) {
+      const tabs = [
+        [templateTabQuiz, templatePanelQuiz, 'quiz'],
+        [templateTabWord, templatePanelWord, 'word'],
+        [templateTabSurvey, templatePanelSurvey, 'survey']
+      ];
+      tabs.forEach(([tabButton, panel, name]) => {
+        const isActive = name === tabName;
+        tabButton.classList.toggle('active', isActive);
+        panel.classList.toggle('active', isActive);
+      });
     }
 
     function switchLanguage(nextLanguage) {
@@ -1029,6 +1103,16 @@ HTML_PAGE = r"""<!doctype html>
       setStatus(t('templateInserted'));
     });
 
+    useWordTemplateButton.addEventListener('click', () => {
+      const promptBox = document.getElementById('prompt');
+      const modeBox = document.getElementById('mode');
+      promptBox.value = wordTemplateBox.textContent.trim();
+      modeBox.value = 'word';
+      promptBox.focus();
+      promptBox.setSelectionRange(promptBox.value.length, promptBox.value.length);
+      setStatus(t('wordTemplateInserted'));
+    });
+
     useSurveyTemplateButton.addEventListener('click', () => {
       const promptBox = document.getElementById('prompt');
       promptBox.value = surveyTemplateBox.textContent.trim();
@@ -1037,9 +1121,14 @@ HTML_PAGE = r"""<!doctype html>
       setStatus(t('surveyTemplateInserted'));
     });
 
+    templateTabQuiz.addEventListener('click', () => activateTemplateTab('quiz'));
+    templateTabWord.addEventListener('click', () => activateTemplateTab('word'));
+    templateTabSurvey.addEventListener('click', () => activateTemplateTab('survey'));
+
     langIdButton.addEventListener('click', () => switchLanguage('id'));
     langEnButton.addEventListener('click', () => switchLanguage('en'));
 
+    activateTemplateTab('quiz');
     applyLanguage();
     showAuthQueryMessage();
     loadSession();

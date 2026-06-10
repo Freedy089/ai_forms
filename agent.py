@@ -112,7 +112,16 @@ def extract_json(text_output):
     match = re.search(r'```json\s*(.*?)\s*```', text_output, re.DOTALL)
     if match:
         return match.group(1).strip()
-    return text_output.strip()
+    stripped = text_output.strip()
+    if stripped.startswith("{") and stripped.endswith("}"):
+        return stripped
+
+    first_brace = stripped.find("{")
+    last_brace = stripped.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        return stripped[first_brace:last_brace + 1].strip()
+
+    return stripped
 
 def extract_requested_points(user_prompt):
     """Mengambil poin default dan poin khusus per tipe soal dari instruksi user."""
@@ -421,7 +430,21 @@ def generate_single_batch_quiz_data(user_input, point_config, count_config, cont
     for attempt in range(MAX_AI_ATTEMPTS):
         ai_response = call_owl_alpha(build_ai_prompt(current_prompt, point_config, count_config, content_type))
         cleaned_json_text = extract_json(ai_response)
-        quiz_data = json.loads(cleaned_json_text)
+        try:
+            quiz_data = json.loads(cleaned_json_text)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            if attempt == MAX_AI_ATTEMPTS - 1:
+                raise ValueError(
+                    "AI mengembalikan JSON yang tidak valid. "
+                    "Coba ulangi permintaan atau sederhanakan prompt."
+                ) from exc
+            current_prompt = (
+                f"{user_input.strip()}\n\n"
+                f"Perbaiki output sebelumnya. JSON Anda tidak valid untuk dibaca sistem. "
+                f"Kembalikan hanya satu blok ```json``` yang berisi object JSON murni tanpa teks tambahan."
+            )
+            continue
         questions = normalize_questions(quiz_data['soal'], point_config, content_type)
 
         try:
