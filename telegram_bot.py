@@ -5,6 +5,7 @@ import config
 from agent import generate_quiz_from_prompt
 from telegram_auth import (
     create_telegram_auth_state,
+    has_telegram_user_credentials,
     load_telegram_user_credentials,
 )
 
@@ -39,6 +40,14 @@ def build_telegram_google_auth_url(chat_id):
         raise ValueError("APP_BASE_URL belum diatur. Dibutuhkan untuk login Google via Telegram.")
     auth_token = create_telegram_auth_state(chat_id)
     return f"{clean_base_url}/auth/telegram-google/start?tg_auth={auth_token}"
+
+
+def normalize_command(text):
+    raw_text = (text or "").strip()
+    if not raw_text.startswith("/"):
+        return raw_text.lower()
+    command = raw_text.split()[0].lower()
+    return command.split("@", 1)[0]
 
 
 def call_telegram(method, data=None, files=None, timeout=60):
@@ -120,10 +129,12 @@ def validate_webhook_secret(headers):
 
 def handle_start_command(chat_id):
     auth_url = None
-    try:
-        auth_url = build_telegram_google_auth_url(chat_id)
-    except Exception:
-        auth_url = None
+    is_google_connected = has_telegram_user_credentials(chat_id)
+    if not is_google_connected:
+        try:
+            auth_url = build_telegram_google_auth_url(chat_id)
+        except Exception:
+            auth_url = None
 
     send_message(
         chat_id,
@@ -136,7 +147,12 @@ def handle_start_command(chat_id):
             "berisi 5 pertanyaan pilihan ganda dan 2 pertanyaan essay, tanpa poin dan tanpa kunci jawaban.\n\n"
             "Atau untuk Word:\n"
             "Buatkan file Word untuk kelas 9 SMP mata pelajaran Matematika, "
-            "30 pilihan ganda dan 5 essay, output Word (.docx)."
+            "30 pilihan ganda dan 5 essay, output Word (.docx).\n\n"
+            + (
+                "Status Google: sudah terhubung."
+                if is_google_connected
+                else "Status Google: belum terhubung."
+            )
         )
     )
     if auth_url:
@@ -149,9 +165,12 @@ def handle_start_command(chat_id):
         )
 
 
+def handle_help_command(chat_id):
+    handle_start_command(chat_id)
+
+
 def handle_prompt(chat_id, prompt):
     result_type = "survey" if "survey" in prompt.lower() or "survei" in prompt.lower() else "quiz/form"
-    send_message(chat_id, f"Permintaan diterima. Saya sedang membuat {result_type}...")
     is_word_request = "word" in prompt.lower() or "docx" in prompt.lower()
     google_creds = None
 
@@ -169,6 +188,7 @@ def handle_prompt(chat_id, prompt):
             )
             return
 
+    send_message(chat_id, f"Permintaan diterima. Saya sedang membuat {result_type}...")
     result = generate_quiz_from_prompt(prompt, google_creds=google_creds)
 
     if result["mode"] == "form":
@@ -210,9 +230,14 @@ def handle_update(update):
     if not chat_id or not text:
         return {"ok": True, "ignored": True}
 
-    if text.lower() == "/start":
+    command = normalize_command(text)
+
+    if command == "/start":
         handle_start_command(chat_id)
         return {"ok": True, "action": "start"}
+    if command == "/help":
+        handle_help_command(chat_id)
+        return {"ok": True, "action": "help"}
 
     handle_prompt(chat_id, text)
     return {"ok": True, "action": "prompt"}

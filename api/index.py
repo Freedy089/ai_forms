@@ -32,6 +32,7 @@ from telegram_bot import (
     delete_webhook,
     get_webhook_info,
     process_webhook_update,
+    send_message as telegram_send_message,
     setup_webhook,
     validate_webhook_secret,
 )
@@ -1689,6 +1690,13 @@ class handler(BaseHTTPRequestHandler):
         creds_payload = serialize_credentials(flow.credentials)
         save_telegram_user_credentials(tg_auth_state["chat_id"], creds_payload)
         delete_telegram_auth_state(returned_state)
+        try:
+            telegram_send_message(
+                tg_auth_state["chat_id"],
+                "Akun Google berhasil terhubung. Silakan kirim prompt Anda lagi untuk membuat Google Form."
+            )
+        except Exception:
+            pass
         body = (
             "<html><body style='font-family:sans-serif;padding:24px'>"
             "<h2>Google account connected</h2>"
