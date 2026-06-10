@@ -35,6 +35,13 @@ from telegram_bot import (
     setup_webhook,
     validate_webhook_secret,
 )
+from telegram_auth import (
+    create_telegram_auth_state,
+    delete_telegram_auth_state,
+    load_telegram_auth_state,
+    save_telegram_auth_state,
+    save_telegram_user_credentials,
+)
 
 
 AUTH_COOKIE_NAME = "hqb_google_creds"
@@ -1235,6 +1242,10 @@ def build_redirect_uri(headers):
     return f"{build_base_url(headers)}/auth/google/callback"
 
 
+def build_telegram_redirect_uri(headers):
+    return f"{build_base_url(headers)}/auth/telegram-google/callback"
+
+
 def get_job_store_dir():
     directory = os.path.join("/tmp" if os.getenv("VERCEL") else os.getcwd(), "job_store")
     os.makedirs(directory, exist_ok=True)
@@ -1484,6 +1495,12 @@ def build_flow(headers, state=None):
     return flow
 
 
+def build_telegram_flow(headers, state=None):
+    flow = Flow.from_client_config(get_google_client_config(), scopes=SCOPES, state=state)
+    flow.redirect_uri = build_telegram_redirect_uri(headers)
+    return flow
+
+
 class handler(BaseHTTPRequestHandler):
     def _normalized_path(self):
         return self.path.split("?", 1)[0]
@@ -1622,6 +1639,64 @@ class handler(BaseHTTPRequestHandler):
             }
         )
 
+    def _start_telegram_google_auth(self):
+        query = self._query_params()
+        tg_auth_token = (query.get("tg_auth") or [""])[0]
+        tg_auth_state = load_telegram_auth_state(tg_auth_token)
+        if not tg_auth_state:
+            self._send_response(
+                400,
+                b"Token autentikasi Telegram tidak valid atau kedaluwarsa.",
+                "text/plain; charset=utf-8"
+            )
+            return
+
+        flow = build_telegram_flow(self.headers)
+        authorization_url, generated_state = flow.authorization_url(
+            access_type="offline",
+            include_granted_scopes="true",
+            prompt="consent"
+        )
+        updated_state = {
+            **tg_auth_state,
+            "oauth_state": generated_state
+        }
+        code_verifier = getattr(flow, "code_verifier", None)
+        if code_verifier:
+            updated_state["code_verifier"] = code_verifier
+        delete_telegram_auth_state(tg_auth_token)
+        save_telegram_auth_state(generated_state, updated_state)
+        self._redirect(authorization_url)
+
+    def _complete_telegram_google_auth(self):
+        query = self._query_params()
+        returned_state = (query.get("state") or [""])[0]
+        tg_auth_state = load_telegram_auth_state(returned_state)
+        if not tg_auth_state:
+            self._send_response(
+                400,
+                b"State OAuth Telegram tidak valid atau kedaluwarsa.",
+                "text/plain; charset=utf-8"
+            )
+            return
+
+        flow = build_telegram_flow(self.headers, state=returned_state)
+        code_verifier = tg_auth_state.get("code_verifier")
+        if code_verifier:
+            flow.code_verifier = code_verifier
+        authorization_response = f"{build_base_url(self.headers)}{self.path}"
+        flow.fetch_token(authorization_response=authorization_response)
+        creds_payload = serialize_credentials(flow.credentials)
+        save_telegram_user_credentials(tg_auth_state["chat_id"], creds_payload)
+        delete_telegram_auth_state(returned_state)
+        body = (
+            "<html><body style='font-family:sans-serif;padding:24px'>"
+            "<h2>Google account connected</h2>"
+            "<p>Return to Telegram and send your prompt again.</p>"
+            "</body></html>"
+        ).encode("utf-8")
+        self._send_response(200, body, "text/html; charset=utf-8")
+
     def do_OPTIONS(self):
         self._send_response(
             204,
@@ -1679,6 +1754,12 @@ class handler(BaseHTTPRequestHandler):
                 return
             if path == "/auth/google/callback":
                 self._complete_google_auth()
+                return
+            if path == "/auth/telegram-google/start":
+                self._start_telegram_google_auth()
+                return
+            if path == "/auth/telegram-google/callback":
+                self._complete_telegram_google_auth()
                 return
             if path == "/auth/logout":
                 self._logout_google_auth()

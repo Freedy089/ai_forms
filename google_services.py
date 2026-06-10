@@ -12,6 +12,17 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive'
 ]
 
+
+def has_shared_google_creds():
+    token_payload = config.GOOGLE_TOKEN_JSON.strip()
+    return bool(token_payload or os.path.exists('token.json'))
+
+
+def should_allow_local_browser_oauth():
+    if os.getenv("VERCEL"):
+        return False
+    return True
+
 def get_google_creds():
     """Menangani otentikasi login Google User"""
     creds = None
@@ -25,6 +36,11 @@ def get_google_creds():
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
+            if not should_allow_local_browser_oauth():
+                raise ValueError(
+                    "Google Form untuk mode bot/webhook membutuhkan kredensial Google bersama. "
+                    "Isi GOOGLE_TOKEN_JSON dengan authorized user JSON dari akun Google pemilik form."
+                )
             client_secret_payload = config.GOOGLE_CLIENT_SECRET_JSON.strip()
             if client_secret_payload:
                 client_config = json.loads(client_secret_payload)

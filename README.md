@@ -241,6 +241,7 @@ This project now supports Telegram webhook mode, so you do not need to keep a te
 ### Important notes
 
 - `TELEGRAM_BOT_TOKEN` must be configured in Vercel.
+- Telegram users can now link their own Google account through a login URL sent by the bot.
 - `APP_BASE_URL` must match your public Vercel domain.
 - `APP_SECRET` is used to protect setup/info/delete routes.
 - `TELEGRAM_WEBHOOK_SECRET` is recommended so Telegram webhook requests can be verified.

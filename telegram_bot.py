@@ -3,6 +3,10 @@ import requests
 
 import config
 from agent import generate_quiz_from_prompt
+from telegram_auth import (
+    create_telegram_auth_state,
+    load_telegram_user_credentials,
+)
 
 
 API_BASE_URL = "https://api.telegram.org/bot{token}/{method}"
@@ -27,6 +31,14 @@ def build_webhook_url(base_url):
 
 def build_webhook_secret():
     return (config.TELEGRAM_WEBHOOK_SECRET or config.APP_SECRET or "").strip()
+
+
+def build_telegram_google_auth_url(chat_id):
+    clean_base_url = (config.APP_BASE_URL or "").rstrip("/")
+    if not clean_base_url:
+        raise ValueError("APP_BASE_URL belum diatur. Dibutuhkan untuk login Google via Telegram.")
+    auth_token = create_telegram_auth_state(chat_id)
+    return f"{clean_base_url}/auth/telegram-google/start?tg_auth={auth_token}"
 
 
 def call_telegram(method, data=None, files=None, timeout=60):
@@ -107,6 +119,12 @@ def validate_webhook_secret(headers):
 
 
 def handle_start_command(chat_id):
+    auth_url = None
+    try:
+        auth_url = build_telegram_google_auth_url(chat_id)
+    except Exception:
+        auth_url = None
+
     send_message(
         chat_id,
         (
@@ -121,12 +139,37 @@ def handle_start_command(chat_id):
             "30 pilihan ganda dan 5 essay, output Word (.docx)."
         )
     )
+    if auth_url:
+        send_message(
+            chat_id,
+            (
+                "Sebelum membuat Google Form lewat Telegram, hubungkan akun Google Anda dulu lewat link ini:\n"
+                f"{auth_url}"
+            )
+        )
 
 
 def handle_prompt(chat_id, prompt):
     result_type = "survey" if "survey" in prompt.lower() or "survei" in prompt.lower() else "quiz/form"
     send_message(chat_id, f"Permintaan diterima. Saya sedang membuat {result_type}...")
-    result = generate_quiz_from_prompt(prompt)
+    is_word_request = "word" in prompt.lower() or "docx" in prompt.lower()
+    google_creds = None
+
+    if not is_word_request:
+        google_creds = load_telegram_user_credentials(chat_id)
+        if google_creds is None:
+            auth_url = build_telegram_google_auth_url(chat_id)
+            send_message(
+                chat_id,
+                (
+                    "Sebelum membuat Google Form lewat Telegram, Anda harus login Google dulu.\n"
+                    f"Silakan buka link ini:\n{auth_url}\n\n"
+                    "Setelah selesai login, kirim lagi prompt Anda."
+                )
+            )
+            return
+
+    result = generate_quiz_from_prompt(prompt, google_creds=google_creds)
 
     if result["mode"] == "form":
         form_links = result["form_links"]
