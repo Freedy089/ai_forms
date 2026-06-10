@@ -158,6 +158,7 @@ Create a local `.env` file or configure these values in Vercel:
 - `OPENROUTER_API_KEY`
 - `MODEL_NAME` — optional, default: `openrouter/owl-alpha`
 - `TELEGRAM_BOT_TOKEN` — required only for Telegram bot usage
+- `TELEGRAM_WEBHOOK_SECRET` — optional but strongly recommended for webhook security
 - `GOOGLE_CLIENT_SECRET_JSON`
 - `GOOGLE_TOKEN_JSON` — optional for local CLI usage
 - `APP_BASE_URL`
@@ -204,6 +205,8 @@ python3 agent.py
 python3 telegram_bot.py
 ```
 
+This still works as a local polling fallback, but the project now also supports Telegram webhook mode for serverless deployment.
+
 ### Local web server behavior
 
 This repository is primarily structured for Vercel deployment through `api/index.py`.  
@@ -223,6 +226,47 @@ The web page is served from:
 The generate endpoint is:
 
 - `/api/generate`
+
+## Telegram webhook on Vercel
+
+This project now supports Telegram webhook mode, so you do not need to keep a terminal open if you deploy it to Vercel.
+
+### Webhook routes
+
+- `/api/telegram/webhook`
+- `/api/telegram/setup-webhook`
+- `/api/telegram/webhook-info`
+- `/api/telegram/delete-webhook`
+
+### Important notes
+
+- `TELEGRAM_BOT_TOKEN` must be configured in Vercel.
+- `APP_BASE_URL` must match your public Vercel domain.
+- `APP_SECRET` is used to protect setup/info/delete routes.
+- `TELEGRAM_WEBHOOK_SECRET` is recommended so Telegram webhook requests can be verified.
+
+### Setup the webhook
+
+After deployment, call this endpoint once:
+
+```bash
+curl -H "Authorization: Bearer YOUR_APP_SECRET" \
+  https://your-domain.vercel.app/api/telegram/setup-webhook
+```
+
+### Check webhook info
+
+```bash
+curl -H "Authorization: Bearer YOUR_APP_SECRET" \
+  https://your-domain.vercel.app/api/telegram/webhook-info
+```
+
+### Delete the webhook
+
+```bash
+curl -H "Authorization: Bearer YOUR_APP_SECRET" \
+  https://your-domain.vercel.app/api/telegram/delete-webhook
+```
 
 ## Async jobs, temporary files, and cleanup
 

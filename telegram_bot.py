@@ -8,8 +8,25 @@ from agent import generate_quiz_from_prompt
 API_BASE_URL = "https://api.telegram.org/bot{token}/{method}"
 
 
+def ensure_bot_token():
+    if not config.TELEGRAM_BOT_TOKEN:
+        raise ValueError("TELEGRAM_BOT_TOKEN masih kosong di config.py")
+
+
 def build_api_url(method):
+    ensure_bot_token()
     return API_BASE_URL.format(token=config.TELEGRAM_BOT_TOKEN, method=method)
+
+
+def build_webhook_url(base_url):
+    clean_base_url = (base_url or config.APP_BASE_URL or "").rstrip("/")
+    if not clean_base_url:
+        raise ValueError("APP_BASE_URL belum diatur. Dibutuhkan untuk Telegram webhook.")
+    return f"{clean_base_url}/api/telegram/webhook"
+
+
+def build_webhook_secret():
+    return (config.TELEGRAM_WEBHOOK_SECRET or config.APP_SECRET or "").strip()
 
 
 def call_telegram(method, data=None, files=None, timeout=60):
@@ -56,6 +73,39 @@ def get_updates(offset=None):
     return payload.get("result", [])
 
 
+def setup_webhook(base_url=None):
+    webhook_url = build_webhook_url(base_url)
+    payload = {
+        "url": webhook_url,
+        "drop_pending_updates": "true"
+    }
+    secret_token = build_webhook_secret()
+    if secret_token:
+        payload["secret_token"] = secret_token
+    return call_telegram("setWebhook", data=payload)
+
+
+def delete_webhook():
+    return call_telegram("deleteWebhook", data={"drop_pending_updates": "true"})
+
+
+def get_webhook_info():
+    response = requests.get(build_api_url("getWebhookInfo"), timeout=30)
+    response.raise_for_status()
+    payload = response.json()
+    if not payload.get("ok"):
+        raise RuntimeError(f"Telegram API error: {payload}")
+    return payload.get("result", {})
+
+
+def validate_webhook_secret(headers):
+    expected_secret = build_webhook_secret()
+    if not expected_secret:
+        return True
+    received_secret = headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    return received_secret == expected_secret
+
+
 def handle_start_command(chat_id):
     send_message(
         chat_id,
@@ -65,7 +115,10 @@ def handle_start_command(chat_id):
             "pilihan ganda, 4 poin per soal.\n\n"
             "Atau untuk survey:\n"
             "Buatkan Google Form survey non-quiz untuk siswa kelas 8 tentang kebiasaan belajar, "
-            "berisi 5 pertanyaan pilihan ganda dan 2 pertanyaan essay, tanpa poin dan tanpa kunci jawaban."
+            "berisi 5 pertanyaan pilihan ganda dan 2 pertanyaan essay, tanpa poin dan tanpa kunci jawaban.\n\n"
+            "Atau untuk Word:\n"
+            "Buatkan file Word untuk kelas 9 SMP mata pelajaran Matematika, "
+            "30 pilihan ganda dan 5 essay, output Word (.docx)."
         )
     )
 
@@ -105,11 +158,39 @@ def extract_message(update):
     return update.get("message") or update.get("edited_message") or {}
 
 
-def run_bot():
-    if not config.TELEGRAM_BOT_TOKEN:
-        raise ValueError("TELEGRAM_BOT_TOKEN masih kosong di config.py")
+def handle_update(update):
+    message = extract_message(update)
+    chat = message.get("chat", {})
+    chat_id = chat.get("id")
+    text = (message.get("text") or "").strip()
 
-    print("Telegram bot berjalan. Tekan Ctrl+C untuk berhenti.")
+    if not chat_id or not text:
+        return {"ok": True, "ignored": True}
+
+    if text.lower() == "/start":
+        handle_start_command(chat_id)
+        return {"ok": True, "action": "start"}
+
+    handle_prompt(chat_id, text)
+    return {"ok": True, "action": "prompt"}
+
+
+def process_webhook_update(update):
+    try:
+        return handle_update(update)
+    except Exception as exc:
+        chat_id = extract_message(update).get("chat", {}).get("id")
+        if chat_id:
+            try:
+                send_message(chat_id, f"Gagal memproses permintaan: {exc}")
+            except Exception:
+                pass
+        return {"ok": False, "error": str(exc)}
+
+
+def run_bot():
+    ensure_bot_token()
+    print("Telegram bot polling berjalan. Tekan Ctrl+C untuk berhenti.")
     next_offset = None
 
     while True:
@@ -117,22 +198,7 @@ def run_bot():
             updates = get_updates(next_offset)
             for update in updates:
                 next_offset = update["update_id"] + 1
-                message = extract_message(update)
-                chat = message.get("chat", {})
-                chat_id = chat.get("id")
-                text = (message.get("text") or "").strip()
-
-                if not chat_id or not text:
-                    continue
-
-                if text.lower() == "/start":
-                    handle_start_command(chat_id)
-                    continue
-
-                try:
-                    handle_prompt(chat_id, text)
-                except Exception as exc:
-                    send_message(chat_id, f"Gagal memproses permintaan: {exc}")
+                process_webhook_update(update)
         except KeyboardInterrupt:
             print("Telegram bot dihentikan.")
             break

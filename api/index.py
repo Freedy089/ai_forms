@@ -28,6 +28,13 @@ from agent import (
 )
 from docx_generator import generate_docx_file
 from google_services import SCOPES
+from telegram_bot import (
+    delete_webhook,
+    get_webhook_info,
+    process_webhook_update,
+    setup_webhook,
+    validate_webhook_secret,
+)
 
 
 AUTH_COOKIE_NAME = "hqb_google_creds"
@@ -1463,6 +1470,14 @@ def is_cron_request_authorized(headers):
     return secrets.compare_digest(auth_header, f"Bearer {expected_secret}")
 
 
+def is_admin_request_authorized(headers):
+    expected_secret = getattr(config, "APP_SECRET", "") or ""
+    if not expected_secret:
+        return False
+    auth_header = headers.get("Authorization", "")
+    return secrets.compare_digest(auth_header, f"Bearer {expected_secret}")
+
+
 def build_flow(headers, state=None):
     flow = Flow.from_client_config(get_google_client_config(), scopes=SCOPES, state=state)
     flow.redirect_uri = build_redirect_uri(headers)
@@ -1638,6 +1653,24 @@ class handler(BaseHTTPRequestHandler):
             if path == "/api/session":
                 self._send_session()
                 return
+            if path == "/api/telegram/webhook-info":
+                if not is_admin_request_authorized(self.headers):
+                    self._send_json(401, {"error": "Unauthorized"})
+                    return
+                self._send_json(200, {"ok": True, "webhook_info": get_webhook_info()})
+                return
+            if path == "/api/telegram/setup-webhook":
+                if not is_admin_request_authorized(self.headers):
+                    self._send_json(401, {"error": "Unauthorized"})
+                    return
+                self._send_json(200, {"ok": True, "result": setup_webhook(build_base_url(self.headers))})
+                return
+            if path == "/api/telegram/delete-webhook":
+                if not is_admin_request_authorized(self.headers):
+                    self._send_json(401, {"error": "Unauthorized"})
+                    return
+                self._send_json(200, {"ok": True, "result": delete_webhook()})
+                return
             if path.startswith("/api/jobs/"):
                 self._handle_job_get(path)
                 return
@@ -1657,6 +1690,9 @@ class handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self._normalized_path()
+        if path == "/api/telegram/webhook":
+            self._handle_telegram_webhook()
+            return
         if path != "/api/generate":
             self._send_json(404, {"error": "Endpoint tidak ditemukan."})
             return
@@ -1745,6 +1781,22 @@ class handler(BaseHTTPRequestHandler):
             )
         except json.JSONDecodeError:
             self._send_json(400, {"error": "Body request harus JSON yang valid."})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _handle_telegram_webhook(self):
+        try:
+            if not validate_webhook_secret(self.headers):
+                self._send_json(401, {"error": "Unauthorized"})
+                return
+
+            content_length = int(self.headers.get("Content-Length", "0"))
+            raw_body = self.rfile.read(content_length)
+            payload = json.loads(raw_body.decode("utf-8") or "{}")
+            result = process_webhook_update(payload)
+            self._send_json(200, result)
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "Body webhook Telegram harus JSON yang valid."})
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
