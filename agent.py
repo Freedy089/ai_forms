@@ -53,7 +53,7 @@ Struktur JSON harus persis seperti ini:
 """
 
 DEFAULT_POINTS = 1
-MAX_AI_ATTEMPTS = 2
+MAX_AI_ATTEMPTS = 3
 MAX_PG_PER_BATCH = 20
 MAX_ESAI_PER_BATCH = 5
 
@@ -122,6 +122,25 @@ def extract_json(text_output):
         return stripped[first_brace:last_brace + 1].strip()
 
     return stripped
+
+
+def parse_json_relaxed(text_output):
+    cleaned_text = extract_json(text_output)
+    try:
+        return json.loads(cleaned_text)
+    except json.JSONDecodeError:
+        pass
+
+    decoder = json.JSONDecoder()
+    first_brace = cleaned_text.find("{")
+    while first_brace != -1:
+        try:
+            parsed, _ = decoder.raw_decode(cleaned_text[first_brace:])
+            return parsed
+        except json.JSONDecodeError:
+            first_brace = cleaned_text.find("{", first_brace + 1)
+
+    raise json.JSONDecodeError("Tidak ditemukan object JSON valid.", cleaned_text, 0)
 
 def extract_requested_points(user_prompt):
     """Mengambil poin default dan poin khusus per tipe soal dari instruksi user."""
@@ -429,9 +448,8 @@ def generate_single_batch_quiz_data(user_input, point_config, count_config, cont
 
     for attempt in range(MAX_AI_ATTEMPTS):
         ai_response = call_owl_alpha(build_ai_prompt(current_prompt, point_config, count_config, content_type))
-        cleaned_json_text = extract_json(ai_response)
         try:
-            quiz_data = json.loads(cleaned_json_text)
+            quiz_data = parse_json_relaxed(ai_response)
         except json.JSONDecodeError as exc:
             last_error = exc
             if attempt == MAX_AI_ATTEMPTS - 1:
@@ -442,7 +460,8 @@ def generate_single_batch_quiz_data(user_input, point_config, count_config, cont
             current_prompt = (
                 f"{user_input.strip()}\n\n"
                 f"Perbaiki output sebelumnya. JSON Anda tidak valid untuk dibaca sistem. "
-                f"Kembalikan hanya satu blok ```json``` yang berisi object JSON murni tanpa teks tambahan."
+                f"Kembalikan hanya satu blok ```json``` yang berisi object JSON murni tanpa teks tambahan. "
+                f"Pastikan seluruh object JSON selesai ditutup sampai kurung kurawal terakhir."
             )
             continue
         questions = normalize_questions(quiz_data['soal'], point_config, content_type)
