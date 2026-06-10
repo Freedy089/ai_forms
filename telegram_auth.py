@@ -43,6 +43,7 @@ def _write_json(path, payload):
 def create_telegram_auth_state(chat_id, ttl_seconds=600):
     state_token = secrets.token_urlsafe(24)
     payload = {
+        "tg_auth_token": state_token,
         "chat_id": str(chat_id),
         "created_at": int(time.time()),
         "expires_at": int(time.time()) + int(ttl_seconds)

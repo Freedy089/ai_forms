@@ -1652,6 +1652,13 @@ class handler(BaseHTTPRequestHandler):
             )
             return
 
+        existing_auth_url = tg_auth_state.get("authorization_url")
+        existing_oauth_state = tg_auth_state.get("oauth_state")
+        if existing_auth_url and existing_oauth_state:
+            save_telegram_auth_state(existing_oauth_state, tg_auth_state)
+            self._redirect(existing_auth_url)
+            return
+
         flow = build_telegram_flow(self.headers)
         authorization_url, generated_state = flow.authorization_url(
             access_type="offline",
@@ -1660,12 +1667,13 @@ class handler(BaseHTTPRequestHandler):
         )
         updated_state = {
             **tg_auth_state,
-            "oauth_state": generated_state
+            "oauth_state": generated_state,
+            "authorization_url": authorization_url
         }
         code_verifier = getattr(flow, "code_verifier", None)
         if code_verifier:
             updated_state["code_verifier"] = code_verifier
-        delete_telegram_auth_state(tg_auth_token)
+        save_telegram_auth_state(tg_auth_token, updated_state)
         save_telegram_auth_state(generated_state, updated_state)
         self._redirect(authorization_url)
 
@@ -1689,6 +1697,9 @@ class handler(BaseHTTPRequestHandler):
         flow.fetch_token(authorization_response=authorization_response)
         creds_payload = serialize_credentials(flow.credentials)
         save_telegram_user_credentials(tg_auth_state["chat_id"], creds_payload)
+        original_tg_auth_token = tg_auth_state.get("tg_auth_token")
+        if original_tg_auth_token:
+            delete_telegram_auth_state(original_tg_auth_token)
         delete_telegram_auth_state(returned_state)
         try:
             telegram_send_message(
