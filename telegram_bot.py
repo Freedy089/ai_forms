@@ -62,13 +62,17 @@ def handle_start_command(chat_id):
         (
             "Kirim instruksi pembuatan soal. Contoh:\n"
             "Buatkan 10 soal kelas 10 SMK mata pelajaran Bahasa Inggris, "
-            "pilihan ganda, 4 poin per soal."
+            "pilihan ganda, 4 poin per soal.\n\n"
+            "Atau untuk survey:\n"
+            "Buatkan Google Form survey non-quiz untuk siswa kelas 8 tentang kebiasaan belajar, "
+            "berisi 5 pertanyaan pilihan ganda dan 2 pertanyaan essay, tanpa poin dan tanpa kunci jawaban."
         )
     )
 
 
 def handle_prompt(chat_id, prompt):
-    send_message(chat_id, "Permintaan diterima. Saya sedang membuat quiz...")
+    result_type = "survey" if "survey" in prompt.lower() or "survei" in prompt.lower() else "quiz/form"
+    send_message(chat_id, f"Permintaan diterima. Saya sedang membuat {result_type}...")
     result = generate_quiz_from_prompt(prompt)
 
     if result["mode"] == "form":
@@ -77,6 +81,7 @@ def handle_prompt(chat_id, prompt):
             chat_id,
             (
                 f"Judul: {result['title']}\n"
+                f"Tipe: {result['content_type']}\n"
                 f"Jumlah soal: {len(result['questions'])}\n"
                 f"Skema poin: {result['points_summary']}\n"
                 f"Link Editor: {form_links['edit_url']}\n"
@@ -87,6 +92,7 @@ def handle_prompt(chat_id, prompt):
 
     caption = (
         f"Judul: {result['title']}\n"
+        f"Tipe: {result['content_type']}\n"
         f"Jumlah soal: {len(result['questions'])}\n"
         f"Skema poin: {result['points_summary']}"
     )

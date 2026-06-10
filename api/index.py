@@ -16,6 +16,7 @@ from agent import (
     build_batch_user_prompt,
     build_form_title,
     build_chunk_count_configs,
+    detect_content_type,
     extract_requested_counts,
     extract_requested_points,
     format_counts_summary,
@@ -272,7 +273,7 @@ HTML_PAGE = r"""<!doctype html>
     <section class="hero">
       <div class="card">
         <div id="badge-text" class="badge">Hermes Quiz Builder Web</div>
-        <h1 id="hero-title">Buat Google Form quiz dari prompt biasa.</h1>
+        <h1 id="hero-title">Buat Google Form quiz atau survey dari prompt biasa.</h1>
         <p id="hero-lead" class="lead">
           User login dulu dengan akun Google masing-masing. Setelah itu form dibuat langsung
           di Google Drive milik user yang sedang login.
@@ -310,11 +311,13 @@ HTML_PAGE = r"""<!doctype html>
           Gunakan format berikut agar hasil lebih rapi dan jumlah soal sesuai:
         </div>
         <div id="prompt-template" class="template-box">Buatkan soal untuk kelas [KELAS] dengan mata pelajaran [MATA PELAJARAN], materi [MATERI], tingkat kesulitan [RENDAH/SEDANG/TINGGI], dengan bentuk soal [JUMLAH PG] Pilihan Ganda sampai [D/E] dan [JUMLAH ESSAY] Essay, dengan poin Pilihan Ganda [POIN PG] poin dan Essay [POIN ESSAY] poin.</div>
+        <div id="survey-template" class="template-box" style="margin-top:10px;">Buatkan Google Form survey non-quiz untuk [TARGET RESPONDEN] tentang [TOPIK], berisi [JUMLAH PG] pertanyaan pilihan ganda dan [JUMLAH ESSAY] pertanyaan essay. Ini adalah survey, jadi jangan aktifkan quiz, jangan gunakan poin, dan jangan buat kunci jawaban.</div>
         <div id="template-note-2" class="status-note" style="margin-top:10px;">
           Format ini adalah template. Ganti bagian dalam tanda kurung siku sesuai kebutuhan Anda.
         </div>
         <div style="margin-top:12px;">
           <button id="use-template-btn" type="button">Gunakan template ini</button>
+          <button id="use-survey-template-btn" type="button">Gunakan template survey</button>
         </div>
       </div>
 
@@ -327,7 +330,7 @@ HTML_PAGE = r"""<!doctype html>
           <div>
             <label id="mode-label" for="mode">Output</label>
             <select id="mode" name="mode">
-              <option id="mode-form-option" value="form">Google Form Quiz</option>
+              <option id="mode-form-option" value="form">Google Form (Quiz/Survey)</option>
               <option id="mode-word-option" value="word">File Word (.docx)</option>
             </select>
           </div>
@@ -372,7 +375,9 @@ HTML_PAGE = r"""<!doctype html>
     const resultBox = document.getElementById('result');
     const submitButton = document.getElementById('submit-btn');
     const useTemplateButton = document.getElementById('use-template-btn');
+    const useSurveyTemplateButton = document.getElementById('use-survey-template-btn');
     const promptTemplateBox = document.getElementById('prompt-template');
+    const surveyTemplateBox = document.getElementById('survey-template');
     const authPill = document.getElementById('auth-pill');
     const authNote = document.getElementById('auth-note');
     const connectButton = document.getElementById('connect-btn');
@@ -392,12 +397,13 @@ HTML_PAGE = r"""<!doctype html>
       id: {
         pageTitle: 'Hermes Quiz Builder',
         badgeText: 'Hermes Quiz Builder Web',
-        heroTitle: 'Buat Google Form quiz dari prompt biasa.',
-        heroLead: 'User login dulu dengan akun Google masing-masing. Setelah itu form dibuat langsung di Google Drive milik user yang sedang login.',
+        heroTitle: 'Buat Google Form quiz atau survey dari prompt biasa.',
+        heroLead: 'User login dulu dengan akun Google masing-masing. Setelah itu form dibuat langsung di Google Drive milik user yang sedang login, baik untuk quiz maupun survey.',
         promptFormatTitle: 'Format prompt',
         tip1: 'Gunakan format: kelas, mata pelajaran, materi, tingkat kesulitan, jumlah soal per tipe, dan poin per tipe.',
         tip2: 'Tulis jumlah soal secara tegas, misalnya `50 pilihan ganda` dan `5 essay`.',
         tip3: 'Tulis poin per tipe secara tegas, misalnya `pilihan ganda 2 poin` dan `essay 3 poin`.',
+        tipSurvey: 'Jika hanya ingin survey, tulis jelas kata seperti `survey`, `non-quiz`, `tanpa poin`, atau `tanpa kunci jawaban`.',
         connectGoogle: 'Hubungkan Google',
         disconnectSession: 'Putuskan Sesi',
         authConnected: 'Status Google: terhubung',
@@ -407,12 +413,14 @@ HTML_PAGE = r"""<!doctype html>
         templateTitle: 'Template prompt',
         templateNote1: 'Gunakan format berikut agar hasil lebih rapi dan jumlah soal sesuai:',
         templateText: 'Buatkan soal untuk kelas [KELAS] dengan mata pelajaran [MATA PELAJARAN], materi [MATERI], tingkat kesulitan [RENDAH/SEDANG/TINGGI], dengan bentuk soal [JUMLAH PG] Pilihan Ganda sampai [D/E] dan [JUMLAH ESSAY] Essay, dengan poin Pilihan Ganda [POIN PG] poin dan Essay [POIN ESSAY] poin.',
+        surveyTemplateText: 'Buatkan Google Form survey non-quiz untuk [TARGET RESPONDEN] tentang [TOPIK], berisi [JUMLAH PG] pertanyaan pilihan ganda dan [JUMLAH ESSAY] pertanyaan essay. Ini adalah survey, jadi jangan aktifkan quiz, jangan gunakan poin, dan jangan buat kunci jawaban.',
         templateNote2: 'Format ini adalah template. Ganti bagian dalam tanda kurung siku sesuai kebutuhan Anda.',
         useTemplate: 'Gunakan template ini',
+        useSurveyTemplate: 'Gunakan template survey',
         promptLabel: 'Instruksi',
         promptPlaceholder: 'Tulis permintaan pembuatan soal di sini...',
         modeLabel: 'Output',
-        modeFormOption: 'Google Form Quiz',
+        modeFormOption: 'Google Form (Quiz/Survey)',
         modeWordOption: 'File Word (.docx)',
         submit: 'Generate',
         loadingTitleIdle: 'Sedang memproses permintaan',
@@ -464,6 +472,7 @@ HTML_PAGE = r"""<!doctype html>
         asyncQueued: 'Permintaan besar dimasukkan ke job async. Sistem akan memproses per batch.',
         requestFailed: 'Gagal memproses permintaan.',
         quizCreated: 'Quiz berhasil dibuat.',
+        surveyCreated: 'Survey berhasil dibuat.',
         questionCount: (count) => 'Jumlah soal: ' + count,
         pointScheme: (value) => 'Skema poin: ' + value,
         chunkedNote: 'Permintaan besar diproses dalam beberapa batch AI lalu digabung.',
@@ -471,18 +480,22 @@ HTML_PAGE = r"""<!doctype html>
         openView: 'Buka View',
         formFinished: 'Google Form selesai dibuat.',
         templateInserted: 'Template prompt dimasukkan ke kolom instruksi.',
+        surveyTemplateInserted: 'Template survey dimasukkan ke kolom instruksi.',
+        resultTypeQuiz: 'Tipe form: Quiz',
+        resultTypeSurvey: 'Tipe form: Survey',
         languageId: 'Bahasa Indonesia',
         languageEn: 'English'
       },
       en: {
         pageTitle: 'Hermes Quiz Builder',
         badgeText: 'Hermes Quiz Builder Web',
-        heroTitle: 'Create Google Forms quizzes from plain prompts.',
-        heroLead: 'Each user signs in with their own Google account. The generated form is created directly inside the signed-in user’s Google Drive.',
+        heroTitle: 'Create Google Forms quizzes or surveys from plain prompts.',
+        heroLead: 'Each user signs in with their own Google account. The generated form is created directly inside the signed-in user’s Google Drive for both quizzes and surveys.',
         promptFormatTitle: 'Prompt format',
         tip1: 'Include class level, subject, topic, difficulty, question counts per type, and points per type.',
         tip2: 'State the counts explicitly, for example `50 multiple choice` and `5 essay`.',
         tip3: 'State the points explicitly, for example `multiple choice 2 points` and `essay 3 points`.',
+        tipSurvey: 'If you only want a survey, clearly include terms such as `survey`, `non-quiz`, `no points`, or `no answer key`.',
         connectGoogle: 'Connect Google',
         disconnectSession: 'Disconnect Session',
         authConnected: 'Google status: connected',
@@ -492,12 +505,14 @@ HTML_PAGE = r"""<!doctype html>
         templateTitle: 'Prompt template',
         templateNote1: 'Use the following format for cleaner results and more accurate question counts:',
         templateText: 'Create questions for grade [GRADE] for the subject [SUBJECT], topic [TOPIC], difficulty [LOW/MEDIUM/HIGH], with [MCQ COUNT] multiple choice questions up to option [D/E] and [ESSAY COUNT] essay questions, with [MCQ POINTS] points for multiple choice and [ESSAY POINTS] points for essay.',
+        surveyTemplateText: 'Create a non-quiz Google Form survey for [TARGET RESPONDENTS] about [TOPIC], containing [MCQ COUNT] multiple choice questions and [ESSAY COUNT] essay questions. This is a survey, so do not enable quiz mode, do not use points, and do not create answer keys.',
         templateNote2: 'This is a template. Replace the content inside square brackets to match your needs.',
         useTemplate: 'Use this template',
+        useSurveyTemplate: 'Use survey template',
         promptLabel: 'Instruction',
         promptPlaceholder: 'Write your quiz generation request here...',
         modeLabel: 'Output',
-        modeFormOption: 'Google Form Quiz',
+        modeFormOption: 'Google Form (Quiz/Survey)',
         modeWordOption: 'Word File (.docx)',
         submit: 'Generate',
         loadingTitleIdle: 'Processing request',
@@ -549,6 +564,7 @@ HTML_PAGE = r"""<!doctype html>
         asyncQueued: 'The large request has been queued as an async job. The system will process it batch by batch.',
         requestFailed: 'Failed to process the request.',
         quizCreated: 'Quiz created successfully.',
+        surveyCreated: 'Survey created successfully.',
         questionCount: (count) => 'Question count: ' + count,
         pointScheme: (value) => 'Point scheme: ' + value,
         chunkedNote: 'Large requests are processed in multiple AI batches and then merged.',
@@ -556,6 +572,9 @@ HTML_PAGE = r"""<!doctype html>
         openView: 'Open View',
         formFinished: 'Google Form created successfully.',
         templateInserted: 'The prompt template has been inserted into the instruction field.',
+        surveyTemplateInserted: 'The survey template has been inserted into the instruction field.',
+        resultTypeQuiz: 'Form type: Quiz',
+        resultTypeSurvey: 'Form type: Survey',
         languageId: 'Bahasa Indonesia',
         languageEn: 'English'
       }
@@ -584,13 +603,23 @@ HTML_PAGE = r"""<!doctype html>
       document.getElementById('tip-1').textContent = t('tip1');
       document.getElementById('tip-2').textContent = t('tip2');
       document.getElementById('tip-3').textContent = t('tip3');
+      const tipSurveyId = 'tip-survey';
+      let tipSurveyNode = document.getElementById(tipSurveyId);
+      if (!tipSurveyNode) {
+        tipSurveyNode = document.createElement('li');
+        tipSurveyNode.id = tipSurveyId;
+        document.querySelector('.tips').appendChild(tipSurveyNode);
+      }
+      tipSurveyNode.textContent = t('tipSurvey');
       document.getElementById('connect-btn').textContent = t('connectGoogle');
       document.getElementById('logout-btn').textContent = t('disconnectSession');
       document.getElementById('template-title').textContent = t('templateTitle');
       document.getElementById('template-note-1').textContent = t('templateNote1');
       document.getElementById('prompt-template').textContent = t('templateText');
+      document.getElementById('survey-template').textContent = t('surveyTemplateText');
       document.getElementById('template-note-2').textContent = t('templateNote2');
       document.getElementById('use-template-btn').textContent = t('useTemplate');
+      document.getElementById('use-survey-template-btn').textContent = t('useSurveyTemplate');
       document.getElementById('prompt-label').textContent = t('promptLabel');
       document.getElementById('prompt').placeholder = t('promptPlaceholder');
       document.getElementById('mode-label').textContent = t('modeLabel');
@@ -971,9 +1000,10 @@ HTML_PAGE = r"""<!doctype html>
           throw new Error(payload.error || t('serverError'));
         }
 
-        setStatus(t('quizCreated'));
+        setStatus(payload.content_type === 'survey' ? t('surveyCreated') : t('quizCreated'));
         showResultHtml(
           '<strong>' + payload.title + '</strong>' +
+          '<div class="result-line">' + (payload.content_type === 'survey' ? t('resultTypeSurvey') : t('resultTypeQuiz')) + '</div>' +
           '<div class="result-line">' + t('questionCount', payload.question_count) + '</div>' +
           '<div class="result-line">' + t('pointScheme', payload.points_summary) + '</div>' +
           (payload.chunked_generation ? '<div class="result-line">' + t('chunkedNote') + '</div>' : '') +
@@ -997,6 +1027,14 @@ HTML_PAGE = r"""<!doctype html>
       promptBox.focus();
       promptBox.setSelectionRange(promptBox.value.length, promptBox.value.length);
       setStatus(t('templateInserted'));
+    });
+
+    useSurveyTemplateButton.addEventListener('click', () => {
+      const promptBox = document.getElementById('prompt');
+      promptBox.value = surveyTemplateBox.textContent.trim();
+      promptBox.focus();
+      promptBox.setSelectionRange(promptBox.value.length, promptBox.value.length);
+      setStatus(t('surveyTemplateInserted'));
     });
 
     langIdButton.addEventListener('click', () => switchLanguage('id'));
@@ -1186,6 +1224,7 @@ def create_job_download_files(job_state):
 
 
 def create_async_word_job(prompt):
+    content_type = detect_content_type(prompt)
     point_config = extract_requested_points(prompt)
     count_config = extract_requested_counts(prompt)
     chunk_configs = build_chunk_count_configs(count_config)
@@ -1194,6 +1233,7 @@ def create_async_word_job(prompt):
     job_state = {
         "job_id": job_id,
         "prompt": prompt,
+        "content_type": content_type,
         "point_config": point_config,
         "count_config": count_config,
         "chunk_configs": chunk_configs,
@@ -1201,7 +1241,7 @@ def create_async_word_job(prompt):
         "total_batches": len(chunk_configs),
         "questions": [],
         "title": None,
-        "points_summary": format_points_summary(point_config),
+        "points_summary": format_points_summary(point_config, content_type),
         "counts_summary": format_counts_summary(count_config),
         "status": "queued",
         "current_step": "Masuk antrean batch AI",
@@ -1215,12 +1255,13 @@ def create_async_word_job(prompt):
     return job_state
 
 
-def create_completed_word_job(prompt, title, questions, point_config, count_config, word_files, chunked_generation=False):
+def create_completed_word_job(prompt, title, questions, point_config, count_config, word_files, chunked_generation=False, content_type="quiz"):
     job_id = secrets.token_urlsafe(12)
     created_at = now_timestamp()
     job_state = {
         "job_id": job_id,
         "prompt": prompt,
+        "content_type": content_type,
         "point_config": point_config,
         "count_config": count_config,
         "chunk_configs": [],
@@ -1228,7 +1269,7 @@ def create_completed_word_job(prompt, title, questions, point_config, count_conf
         "total_batches": 0,
         "questions": questions,
         "title": title,
-        "points_summary": format_points_summary(point_config),
+        "points_summary": format_points_summary(point_config, content_type),
         "counts_summary": format_counts_summary(count_config),
         "status": "done",
         "current_step": "Selesai",
@@ -1261,6 +1302,7 @@ def build_job_status_response(job_state, base_url):
         "points_summary": job_state["points_summary"],
         "counts_summary": job_state["counts_summary"],
         "chunked_generation": job_state.get("chunked_generation", False),
+        "content_type": job_state.get("content_type", "quiz"),
         "expires_at": job_state["expires_at"]
     }
     if job_state.get("title"):
@@ -1294,10 +1336,15 @@ def advance_async_word_job(job_state):
             quiz_data, questions = generate_single_batch_quiz_data(
                 batch_prompt,
                 job_state["point_config"],
-                chunk_count_config
+                chunk_count_config,
+                job_state.get("content_type", "quiz")
             )
             if not job_state.get("title"):
-                job_state["title"] = build_form_title(job_state["prompt"], quiz_data.get("judul", "Quiz"))
+                job_state["title"] = build_form_title(
+                    job_state["prompt"],
+                    quiz_data.get("judul", "Survey" if job_state.get("content_type") == "survey" else "Quiz"),
+                    job_state.get("content_type", "quiz")
+                )
             job_state["questions"].extend(questions)
             job_state["completed_batches"] += 1
 
@@ -1578,7 +1625,8 @@ class handler(BaseHTTPRequestHandler):
                     point_config=point_config,
                     count_config=count_config,
                     word_files=word_files,
-                    chunked_generation=result.get("chunked_generation", False)
+                    chunked_generation=result.get("chunked_generation", False),
+                    content_type=result.get("content_type", "quiz")
                 )
                 base_url = build_base_url(self.headers)
                 self._send_json(
@@ -1587,6 +1635,7 @@ class handler(BaseHTTPRequestHandler):
                         **build_job_status_response(job_state, base_url),
                         "title": result["title"],
                         "question_count": len(result["questions"]),
+                        "content_type": result["content_type"],
                         "status_url": f"{base_url}/api/jobs/{job_state['job_id']}"
                     }
                 )
@@ -1598,6 +1647,7 @@ class handler(BaseHTTPRequestHandler):
                 {
                     "title": result["title"],
                     "question_count": len(result["questions"]),
+                    "content_type": result["content_type"],
                     "points_summary": result["points_summary"],
                     "chunked_generation": result["chunked_generation"],
                     "edit_url": form_links["edit_url"],

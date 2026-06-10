@@ -1,8 +1,9 @@
 # Hermes Quiz Builder
 
-Hermes Quiz Builder is an AI-assisted quiz generation project that turns natural-language prompts into:
+Hermes Quiz Builder is an AI-assisted quiz and survey generation project that turns natural-language prompts into:
 
 - Google Forms quizzes
+- Google Forms surveys
 - Word documents for question sheets
 - Separate Word documents for answer keys
 - Telegram bot responses
@@ -16,6 +17,7 @@ Instead of manually writing dozens of questions, formatting answer keys, and reb
 The project supports:
 
 - multiple choice and essay questions
+- non-quiz survey forms without grading
 - per-question-type point settings
 - Google Forms quiz mode with answer keys
 - automatic form title generation
@@ -69,6 +71,7 @@ This project is mainly intended for:
 ## Features
 
 - Generate Google Forms quizzes from plain prompts
+- Generate Google Forms surveys from plain prompts
 - Automatically create answer keys for supported questions
 - Set different points for multiple choice and essay questions
 - Auto-generate a simple title such as `English - 10 SMK`

@@ -78,8 +78,8 @@ def build_grading(question):
 
     return grading
 
-def create_google_form(title, questions_list, creds=None):
-    """Membuat Google Form quiz berdasarkan campuran soal PG dan Esai dari AI."""
+def create_google_form(title, questions_list, creds=None, as_quiz=True):
+    """Membuat Google Form quiz atau survey berdasarkan campuran PG dan Esai dari AI."""
     creds = creds or get_google_creds()
     form_service = build('forms', 'v1', credentials=creds)
     
@@ -94,22 +94,24 @@ def create_google_form(title, questions_list, creds=None):
     form_id = form['formId']
     
     requests = []
-    requests.append({
-        'updateSettings': {
-            'settings': {
-                'quizSettings': {
-                    'isQuiz': True
-                }
-            },
-            'updateMask': 'quizSettings.isQuiz'
-        }
-    })
+    if as_quiz:
+        requests.append({
+            'updateSettings': {
+                'settings': {
+                    'quizSettings': {
+                        'isQuiz': True
+                    }
+                },
+                'updateMask': 'quizSettings.isQuiz'
+            }
+        })
 
     for index, q in enumerate(questions_list):
         question_item = {
-            'required': True,
-            'grading': build_grading(q)
+            'required': True
         }
+        if as_quiz:
+            question_item['grading'] = build_grading(q)
         
         if q['tipe'].lower() == 'esai':
             question_item['textQuestion'] = {'paragraph': True}

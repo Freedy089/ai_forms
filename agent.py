@@ -7,10 +7,10 @@ from google_services import create_google_form
 from docx_generator import generate_docx_file
 
 SYSTEM_PROMPT = """
-Anda adalah asisten pembuat soal ujian sekolah (SD/SMP/SMK/SMA).
-Tugas Anda adalah membaca instruksi user dan membuatkan soal berdasarkan permintaan spesifik mereka.
+Anda adalah asisten pembuat soal ujian sekolah dan form survey (SD/SMP/SMK/SMA).
+Tugas Anda adalah membaca instruksi user dan membuatkan soal atau form survey berdasarkan permintaan spesifik mereka.
 
-Aturan Pembuatan Soal:
+Aturan Pembuatan Konten:
 1. Perhatikan tipe soal yang diminta (bisa Pilihan Ganda (PG) saja, Esai saja, atau Campuran keduanya).
 2. Jika user meminta soal Pilihan Ganda (PG), perhatikan batas opsinya:
    - Jika untuk SD/SMP biasanya sampai D (A, B, C, D).
@@ -19,6 +19,11 @@ Aturan Pembuatan Soal:
 4. Setiap soal WAJIB memiliki properti 'poin' bertipe angka bulat positif.
 5. Jika instruksi user menentukan poin tertentu, gunakan angka poin yang sama untuk setiap soal.
 6. Untuk soal PG, isi 'kunci_jawaban' dengan huruf opsi yang benar saja, misal "A" atau "C".
+7. Jika user meminta survey / survei / kuesioner / non-quiz:
+   - jangan buat jawaban benar/salah;
+   - kosongkan properti 'kunci_jawaban' untuk semua butir;
+   - isi 'poin' dengan angka 1 sebagai placeholder internal;
+   - fokus pada butir pertanyaan survey yang natural dan relevan.
 
 PENTING: Anda HARUS merespon dalam format JSON MURNI di dalam blok markdown ```json ... ``` agar data aman dibaca sistem.
 Jangan memberikan teks deskripsi tambahan di luar blok JSON tersebut.
@@ -32,14 +37,16 @@ Struktur JSON harus persis seperti ini:
       "pertanyaan": "Teks soal pilihan ganda di sini?",
       "pilihan": ["A. opsi 1", "B. opsi 2", "C. opsi 3", "D. opsi 4", "E. opsi 5"],
       "kunci_jawaban": "A",
-      "poin": 2
+      "poin": 2,
+      "penjelasan": "Alasan mengapa jawaban A benar. Jika soal hitungan seperti matematika/fisika, tulis langkah perhitungan singkat dan jelas sampai hasil akhir."
     },
     {
       "tipe": "esai",
       "pertanyaan": "Teks soal esai di sini?",
       "pilihan": [],
       "kunci_jawaban": "",
-      "poin": 2
+      "poin": 2,
+      "penjelasan": "Garis besar jawaban yang diharapkan atau poin-poin penilaian."
     }
   ]
 }
@@ -49,6 +56,19 @@ DEFAULT_POINTS = 1
 MAX_AI_ATTEMPTS = 2
 MAX_PG_PER_BATCH = 20
 MAX_ESAI_PER_BATCH = 5
+
+
+def detect_content_type(user_prompt):
+    lower_prompt = user_prompt.lower()
+    survey_keywords = [
+        "survey", "survei", "kuesioner", "kuisioner", "questionnaire",
+        "non-quiz", "non quiz", "bukan quiz", "tanpa quiz", "tanpa kuis",
+        "tidak perlu quiz", "tidak usah quiz", "form biasa", "google form biasa",
+        "tanpa poin", "tanpa point", "tanpa kunci jawaban"
+    ]
+    if any(keyword in lower_prompt for keyword in survey_keywords):
+        return "survey"
+    return "quiz"
 
 def call_owl_alpha(user_prompt):
     """Memanggil model Owl Alpha via OpenRouter"""
@@ -221,7 +241,7 @@ def simplify_ai_title(ai_title):
     base_title = re.split(r'\s*[-|:]\s*', cleaned_title, maxsplit=1)[0]
     return title_case_subject(base_title)
 
-def build_form_title(user_prompt, ai_title):
+def build_form_title(user_prompt, ai_title, content_type="quiz"):
     subject = extract_subject(user_prompt) or simplify_ai_title(ai_title)
     grade_label = extract_grade_label(user_prompt)
 
@@ -230,10 +250,12 @@ def build_form_title(user_prompt, ai_title):
     if subject:
         return subject
     if grade_label:
-        return f"Quiz - {grade_label}"
-    return normalize_whitespace(ai_title) or "Quiz"
+        return f"{'Survey' if content_type == 'survey' else 'Quiz'} - {grade_label}"
+    return normalize_whitespace(ai_title) or ("Survey" if content_type == "survey" else "Quiz")
 
-def format_points_summary(point_config):
+def format_points_summary(point_config, content_type="quiz"):
+    if content_type == "survey":
+        return "Tidak digunakan (survey)"
     if point_config["pg"] == point_config["esai"]:
         return f"{point_config['pg']} poin per soal"
     return f"PG {point_config['pg']} poin, Esai {point_config['esai']} poin"
@@ -284,12 +306,33 @@ def build_chunk_count_configs(count_config):
             chunk_configs.append(chunk_config)
     return chunk_configs
 
-def build_ai_prompt(user_input, point_config, count_config):
+def build_ai_prompt(user_input, point_config, count_config, content_type="quiz"):
     count_instructions = ""
     if count_config["pg"] is not None:
         count_instructions += f"- Jumlah soal PG harus tepat {count_config['pg']} butir.\n"
     if count_config["esai"] is not None:
         count_instructions += f"- Jumlah soal esai harus tepat {count_config['esai']} butir.\n"
+
+    if content_type == "survey":
+        extra_instructions = (
+            f"- Ini adalah form survey/non-quiz, bukan ujian.\n"
+            f"- Jangan buat jawaban benar/salah.\n"
+            f"- Semua butir wajib memakai 'kunci_jawaban' kosong.\n"
+            f"- Isi properti 'poin' dengan angka 1 sebagai placeholder internal.\n"
+            f"- Isi properti 'penjelasan' dengan tujuan singkat atau konteks pertanyaan bila relevan.\n"
+            f"- Gunakan gaya bahasa yang cocok untuk survey atau kuesioner.\n"
+        )
+    else:
+        extra_instructions = (
+            f"- Soal PG harus memakai {point_config['pg']} poin per butir.\n"
+            f"- Soal esai harus memakai {point_config['esai']} poin per butir.\n"
+            f"- Jika output dibuat untuk Google Form, siapkan soal agar cocok dijadikan quiz.\n"
+            f"- Untuk soal PG, isi 'kunci_jawaban' dengan huruf opsi yang benar.\n"
+            f"- Untuk soal esai, biarkan 'kunci_jawaban' kosong.\n"
+            f"- Setiap butir wajib memiliki properti 'penjelasan'.\n"
+            f"- Penjelasan harus menerangkan mengapa jawaban itu benar.\n"
+            f"- Khusus soal matematika/angka, penjelasan wajib memuat langkah hitung yang ringkas namun jelas sampai hasil akhir.\n"
+        )
 
     return (
         f"{user_input.strip()}\n\n"
@@ -297,14 +340,10 @@ def build_ai_prompt(user_input, point_config, count_config):
         f"- Judul wajib singkat dan sederhana, format utamanya: Mata Pelajaran - Kelas.\n"
         f"- Setiap soal wajib memiliki properti 'poin'.\n"
         f"{count_instructions}"
-        f"- Soal PG harus memakai {point_config['pg']} poin per butir.\n"
-        f"- Soal esai harus memakai {point_config['esai']} poin per butir.\n"
-        f"- Jika output dibuat untuk Google Form, siapkan soal agar cocok dijadikan quiz.\n"
-        f"- Untuk soal PG, isi 'kunci_jawaban' dengan huruf opsi yang benar.\n"
-        f"- Untuk soal esai, biarkan 'kunci_jawaban' kosong.\n"
+        f"{extra_instructions}"
     )
 
-def normalize_questions(questions, point_config):
+def normalize_questions(questions, point_config, content_type="quiz"):
     """Menjamin setiap butir soal punya bentuk data yang konsisten untuk downstream."""
     if not isinstance(questions, list):
         raise ValueError("Format 'soal' dari AI tidak valid. Data soal harus berupa array/list.")
@@ -329,8 +368,19 @@ def normalize_questions(questions, point_config):
             'pertanyaan': str(question.get('pertanyaan', '')).strip(),
             'pilihan': [str(choice).strip() for choice in raw_choices if str(choice).strip()],
             'kunci_jawaban': str(question.get('kunci_jawaban', '')).strip(),
-            'poin': max(1, int(question.get('poin', fallback_points)))
+            'poin': max(1, int(question.get('poin', fallback_points))),
+            'penjelasan': str(question.get('penjelasan', '')).strip()
         }
+        if content_type == "survey":
+            normalized_question['kunci_jawaban'] = ""
+            normalized_question['poin'] = 1
+        if not normalized_question['penjelasan']:
+            if content_type == "survey":
+                normalized_question['penjelasan'] = "Pertanyaan ini digunakan untuk mengumpulkan pendapat atau informasi responden."
+            elif question_type == "esai":
+                normalized_question['penjelasan'] = "Gunakan jawaban yang memuat konsep utama yang diminta pada soal."
+            else:
+                normalized_question['penjelasan'] = "Jawaban ini dipilih karena paling sesuai dengan konsep yang diuji pada soal."
         if not normalized_question['pertanyaan']:
             raise ValueError(f"Soal nomor {index} tidak memiliki teks pertanyaan.")
         normalized_questions.append(normalized_question)
@@ -364,15 +414,15 @@ def build_batch_user_prompt(user_input, batch_count_config, batch_index, total_b
         f"Hindari pengulangan soal yang terlalu mirip antar batch."
     )
 
-def generate_single_batch_quiz_data(user_input, point_config, count_config):
+def generate_single_batch_quiz_data(user_input, point_config, count_config, content_type="quiz"):
     last_error = None
     current_prompt = user_input
 
     for attempt in range(MAX_AI_ATTEMPTS):
-        ai_response = call_owl_alpha(build_ai_prompt(current_prompt, point_config, count_config))
+        ai_response = call_owl_alpha(build_ai_prompt(current_prompt, point_config, count_config, content_type))
         cleaned_json_text = extract_json(ai_response)
         quiz_data = json.loads(cleaned_json_text)
-        questions = normalize_questions(quiz_data['soal'], point_config)
+        questions = normalize_questions(quiz_data['soal'], point_config, content_type)
 
         try:
             validate_question_counts(questions, count_config)
@@ -390,9 +440,9 @@ def generate_single_batch_quiz_data(user_input, point_config, count_config):
     if last_error:
         raise last_error
 
-def generate_quiz_data(user_input, point_config, count_config):
+def generate_quiz_data(user_input, point_config, count_config, content_type="quiz"):
     if not should_chunk_large_request(count_config):
-        return generate_single_batch_quiz_data(user_input, point_config, count_config)
+        return generate_single_batch_quiz_data(user_input, point_config, count_config, content_type)
 
     chunk_count_configs = build_chunk_count_configs(count_config)
     all_questions = []
@@ -400,9 +450,9 @@ def generate_quiz_data(user_input, point_config, count_config):
 
     for index, chunk_count_config in enumerate(chunk_count_configs, 1):
         batch_prompt = build_batch_user_prompt(user_input, chunk_count_config, index, len(chunk_count_configs))
-        quiz_data, questions = generate_single_batch_quiz_data(batch_prompt, point_config, chunk_count_config)
+        quiz_data, questions = generate_single_batch_quiz_data(batch_prompt, point_config, chunk_count_config, content_type)
         if not batch_title:
-            batch_title = quiz_data.get("judul", "Quiz")
+            batch_title = quiz_data.get("judul", "Survey" if content_type == "survey" else "Quiz")
         all_questions.extend(questions)
 
     validate_question_counts(all_questions, count_config)
@@ -410,6 +460,7 @@ def generate_quiz_data(user_input, point_config, count_config):
 
 def generate_quiz_from_prompt(user_input, output_mode=None, google_creds=None):
     """Menjalankan alur utama pembuatan soal agar bisa dipakai CLI dan Telegram."""
+    content_type = detect_content_type(user_input)
     point_config = extract_requested_points(user_input)
     count_config = extract_requested_counts(user_input)
     chunked_generation = should_chunk_large_request(count_config)
@@ -417,20 +468,21 @@ def generate_quiz_from_prompt(user_input, output_mode=None, google_creds=None):
     if output_mode is None and ("word" in user_input.lower() or "docx" in user_input.lower()):
         mode = "word"
 
-    quiz_data, questions = generate_quiz_data(user_input, point_config, count_config)
-    title = build_form_title(user_input, quiz_data.get('judul', 'Quiz'))
+    quiz_data, questions = generate_quiz_data(user_input, point_config, count_config, content_type)
+    title = build_form_title(user_input, quiz_data.get('judul', 'Survey' if content_type == 'survey' else 'Quiz'), content_type)
     result = {
         'title': title,
         'questions': questions,
         'mode': mode,
+        'content_type': content_type,
         'point_config': point_config,
-        'points_summary': format_points_summary(point_config),
+        'points_summary': format_points_summary(point_config, content_type),
         'counts_summary': format_counts_summary(count_config),
         'chunked_generation': chunked_generation
     }
 
     if mode == "form":
-        result['form_links'] = create_google_form(title, questions, creds=google_creds)
+        result['form_links'] = create_google_form(title, questions, creds=google_creds, as_quiz=(content_type == "quiz"))
     else:
         result['word_files'] = generate_docx_file(title, questions)
 
@@ -448,14 +500,15 @@ def main():
         mode = result['mode']
         points_summary = result['points_summary']
         
-        print(f"[2/3] Soal berhasil dibuat: '{title}' ({len(questions)} butir soal ditemukan).")
+        print(f"[2/3] Konten berhasil dibuat: '{title}' ({len(questions)} butir ditemukan, tipe: {result['content_type']}).")
         if result['chunked_generation']:
             print("[Info] Permintaan besar diproses dalam beberapa batch AI lalu digabung.")
         
         if mode == "form":
-            print(f"[3/3] Menghubungkan ke Google API untuk generate Quiz Form dengan skema poin {points_summary}...")
+            form_kind = "Quiz Form" if result["content_type"] == "quiz" else "Survey Form"
+            print(f"[3/3] Menghubungkan ke Google API untuk generate {form_kind} dengan skema poin {points_summary}...")
             form_links = result['form_links']
-            print(f"\n✨ BERHASIL! Google Quiz Form telah dibuat di akun Anda.")
+            print(f"\n✨ BERHASIL! Google {form_kind} telah dibuat di akun Anda.")
             print(f"🛠️ Link Editor Google Form: {form_links['edit_url']}")
             print(f"🔗 Link View/Responder Google Form: {form_links['view_url']}")
             

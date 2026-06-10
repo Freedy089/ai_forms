@@ -2,6 +2,7 @@ import os
 import re
 
 import docx
+from docx.shared import Pt
 
 
 def sanitize_filename(title):
@@ -15,6 +16,19 @@ def get_output_dir():
 
 def build_question_text(question):
     return question["pertanyaan"]
+
+
+def set_paragraph_spacing(paragraph, after=0, before=0):
+    paragraph_format = paragraph.paragraph_format
+    paragraph_format.space_after = Pt(after)
+    paragraph_format.space_before = Pt(before)
+
+
+def add_indented_paragraph(document, text, left_indent_pt=18):
+    paragraph = document.add_paragraph(text)
+    paragraph.paragraph_format.left_indent = Pt(left_indent_pt)
+    set_paragraph_spacing(paragraph, after=0)
+    return paragraph
 
 
 def resolve_answer_option(question):
@@ -35,15 +49,19 @@ def generate_questions_docx(title, questions_list, output_dir):
     document.add_heading(title, 0)
 
     for question in questions_list:
-        document.add_paragraph(build_question_text(question), style="List Number")
+        question_paragraph = document.add_paragraph(style="List Number")
+        question_paragraph.add_run(build_question_text(question))
+        set_paragraph_spacing(question_paragraph, after=4)
 
         if question["tipe"].lower() == "pg":
             for option in question["pilihan"]:
-                document.add_paragraph(option, style="List Bullet")
+                add_indented_paragraph(document, option, left_indent_pt=24)
         else:
-            document.add_paragraph(
+            add_indented_paragraph(
+                document,
                 "Jawaban: ...................................................................................................."
             )
+        document.add_paragraph("")
 
     questions_filename = f"{sanitize_filename(title)}_soal.docx"
     questions_path = os.path.join(output_dir, questions_filename)
@@ -54,21 +72,35 @@ def generate_questions_docx(title, questions_list, output_dir):
 def generate_answer_key_docx(title, questions_list, output_dir):
     document = docx.Document()
     document.add_heading(f"Kunci Jawaban - {title}", 0)
+    has_answer_key = any((question.get("kunci_jawaban") or "").strip() for question in questions_list)
 
-    for question in questions_list:
-        document.add_paragraph(build_question_text(question), style="List Number")
-        points = question.get("poin", 1)
+    if not has_answer_key:
+        document.add_paragraph("Dokumen ini tidak memiliki kunci jawaban karena konten dibuat sebagai survey/non-quiz.")
+
+    for index, question in enumerate(questions_list, 1):
         answer_key = question.get("kunci_jawaban", "").strip()
+        explanation = (question.get("penjelasan") or "").strip()
 
         if question["tipe"].lower() == "pg":
             resolved_answer = resolve_answer_option(question)
             if resolved_answer:
-                document.add_paragraph(f"Kunci Jawaban: {resolved_answer}")
+                answer_label = resolved_answer
             else:
-                document.add_paragraph(f"Kunci Jawaban: {answer_key or '-'}")
+                answer_label = answer_key or "-"
         else:
-            document.add_paragraph("Kunci Jawaban: Penilaian manual oleh guru.")
-        document.add_paragraph(f"Poin: {points}")
+            if has_answer_key:
+                answer_label = "Penilaian manual oleh guru."
+            else:
+                answer_label = "Tidak digunakan."
+
+        answer_paragraph = document.add_paragraph()
+        answer_paragraph.add_run(f"{index}. {answer_label}")
+        set_paragraph_spacing(answer_paragraph, after=2)
+
+        if explanation:
+            add_indented_paragraph(document, f"Penjelasan: {explanation}")
+
+        document.add_paragraph("")
 
     answer_key_filename = f"{sanitize_filename(title)}_kunci_jawaban.docx"
     answer_key_path = os.path.join(output_dir, answer_key_filename)
