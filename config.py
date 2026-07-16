@@ -11,8 +11,9 @@ def read_env(name, default=""):
     return cleaned
 
 
-OPENROUTER_API_KEY = read_env("OPENROUTER_API_KEY")
-MODEL_NAME = read_env("MODEL_NAME", "openrouter/owl-alpha")
+NVIDIA_NIM_API_KEY = read_env("NVIDIA_NIM_API_KEY")
+NVIDIA_NIM_BASE_URL = read_env("NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+MODEL_NAME = read_env("MODEL_NAME", "nemotron-3-ultra-550b-a55b")
 TELEGRAM_BOT_TOKEN = read_env("TELEGRAM_BOT_TOKEN")
 TELEGRAM_WEBHOOK_SECRET = read_env("TELEGRAM_WEBHOOK_SECRET")
 GOOGLE_CLIENT_SECRET_JSON = read_env("GOOGLE_CLIENT_SECRET_JSON")

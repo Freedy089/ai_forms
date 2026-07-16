@@ -94,7 +94,7 @@ This project is mainly intended for:
 - `http.server` for the lightweight Vercel-compatible HTTP handler
 - Google Forms API
 - Google Drive / OAuth flow via `google-auth` and `google-auth-oauthlib`
-- OpenRouter API for AI generation
+- NVIDIA NIM API for AI generation
 
 ### Document generation
 
@@ -155,8 +155,9 @@ pip install -r requirements.txt
 
 Create a local `.env` file or configure these values in Vercel:
 
-- `OPENROUTER_API_KEY`
-- `MODEL_NAME` — optional, default: `openrouter/owl-alpha`
+- `NVIDIA_NIM_API_KEY`
+- `NVIDIA_NIM_BASE_URL` — optional, default: `https://integrate.api.nvidia.com/v1`
+- `MODEL_NAME` — optional, default: `nemotron-3-ultra-550b-a55b`
 - `TELEGRAM_BOT_TOKEN` — required only for Telegram bot usage
 - `TELEGRAM_WEBHOOK_SECRET` — optional but strongly recommended for webhook security
 - `GOOGLE_CLIENT_SECRET_JSON`

@@ -70,21 +70,23 @@ def detect_content_type(user_prompt):
         return "survey"
     return "quiz"
 
-def call_owl_alpha(user_prompt):
-    """Memanggil model Owl Alpha via OpenRouter"""
-    if not config.OPENROUTER_API_KEY:
-        raise ValueError("OPENROUTER_API_KEY belum diatur.")
-    if not config.OPENROUTER_API_KEY.startswith("sk-or-v1-"):
-        raise ValueError(
-            "OPENROUTER_API_KEY terbaca tetapi formatnya tidak valid. "
-            "Pastikan value di Vercel adalah API key mentah tanpa kutip."
-        )
+def build_nvidia_nim_chat_url():
+    base_url = (config.NVIDIA_NIM_BASE_URL or "").strip().rstrip("/")
+    if not base_url:
+        raise ValueError("NVIDIA_NIM_BASE_URL belum diatur.")
+    return f"{base_url}/chat/completions"
+
+
+def call_nvidia_nim(user_prompt):
+    """Memanggil model NVIDIA NIM melalui endpoint chat completions."""
+    if not config.NVIDIA_NIM_API_KEY:
+        raise ValueError("NVIDIA_NIM_API_KEY belum diatur.")
 
     headers = {
-        "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {config.NVIDIA_NIM_API_KEY}",
         "Content-Type": "application/json"
     }
-    
+
     data = {
         "model": config.MODEL_NAME,
         "messages": [
@@ -93,19 +95,19 @@ def call_owl_alpha(user_prompt):
         ],
         "temperature": 0.3  # Diturunkan agar output AI konsisten mengikuti format JSON
     }
-    
-    response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data)
-    
-    # Cek status HTTP Response untuk mempermudah analisa jika API Key mati/salah model ID
+
+    response = requests.post(build_nvidia_nim_chat_url(), headers=headers, json=data, timeout=120)
+
+    # Cek status HTTP Response untuk mempermudah analisa jika API Key mati/salah model ID.
     if response.status_code != 200:
-        raise Exception(f"API OpenRouter Error [{response.status_code}]: {response.text}")
-        
+        raise Exception(f"API NVIDIA NIM Error [{response.status_code}]: {response.text}")
+
     try:
         res_json = response.json()
         content = res_json['choices'][0]['message']['content'].strip()
         return content
     except (KeyError, IndexError):
-        raise Exception(f"Format respon API OpenRouter tidak sesuai standar: {response.text}")
+        raise Exception(f"Format respon API NVIDIA NIM tidak sesuai standar: {response.text}")
 
 def extract_json(text_output):
     """Mengekstrak teks JSON yang bersih meskipun terbungkus markdown ```json ... ```"""
@@ -447,7 +449,7 @@ def generate_single_batch_quiz_data(user_input, point_config, count_config, cont
     current_prompt = user_input
 
     for attempt in range(MAX_AI_ATTEMPTS):
-        ai_response = call_owl_alpha(build_ai_prompt(current_prompt, point_config, count_config, content_type))
+        ai_response = call_nvidia_nim(build_ai_prompt(current_prompt, point_config, count_config, content_type))
         try:
             quiz_data = parse_json_relaxed(ai_response)
         except json.JSONDecodeError as exc:
@@ -534,7 +536,7 @@ def main():
     print("=== Hermes Quiz Builder Agent v2.1 ===")
     user_input = input("\nMasukkan perintah Anda:\n> ")
         
-    print("\n[1/3] Menghubungi Hermes Agent (Owl Alpha) untuk merancang soal...")
+    print("\n[1/3] Menghubungi Hermes Agent (NVIDIA NIM) untuk merancang soal...")
     try:
         result = generate_quiz_from_prompt(user_input)
         title = result['title']
