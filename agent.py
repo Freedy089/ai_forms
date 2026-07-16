@@ -24,6 +24,7 @@ Aturan Pembuatan Konten:
    - kosongkan properti 'kunci_jawaban' untuk semua butir;
    - isi 'poin' dengan angka 1 sebagai placeholder internal;
    - fokus pada butir pertanyaan survey yang natural dan relevan.
+8. Buat teks pertanyaan, opsi, dan penjelasan secara ringkas. Penjelasan cukup 1-2 kalimat.
 
 PENTING: Anda HARUS merespon dalam format JSON MURNI di dalam blok markdown ```json ... ``` agar data aman dibaca sistem.
 Jangan memberikan teks deskripsi tambahan di luar blok JSON tersebut.
@@ -92,6 +93,22 @@ def build_nvidia_nim_model_name():
     return model_name
 
 
+def parse_positive_int(value, default):
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def build_nvidia_nim_timeout():
+    return parse_positive_int(config.NVIDIA_NIM_TIMEOUT_SECONDS, 240)
+
+
+def build_nvidia_nim_max_tokens():
+    return parse_positive_int(config.NVIDIA_NIM_MAX_TOKENS, 8192)
+
+
 def call_nvidia_nim(user_prompt):
     """Memanggil model NVIDIA NIM melalui endpoint chat completions."""
     if not config.NVIDIA_NIM_API_KEY:
@@ -108,11 +125,24 @@ def call_nvidia_nim(user_prompt):
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
         ],
-        "temperature": 0.3  # Diturunkan agar output AI konsisten mengikuti format JSON
+        "temperature": 0.3,  # Diturunkan agar output AI konsisten mengikuti format JSON
+        "max_tokens": build_nvidia_nim_max_tokens()
     }
 
     chat_url = build_nvidia_nim_chat_url()
-    response = requests.post(chat_url, headers=headers, json=data, timeout=120)
+    timeout_seconds = build_nvidia_nim_timeout()
+    try:
+        response = requests.post(chat_url, headers=headers, json=data, timeout=(10, timeout_seconds))
+    except requests.exceptions.ReadTimeout as exc:
+        raise TimeoutError(
+            "NVIDIA NIM belum mengirim respons sampai batas waktu "
+            f"{timeout_seconds} detik. Coba naikkan NVIDIA_NIM_TIMEOUT_SECONDS, "
+            "kurangi jumlah soal per prompt, atau kecilkan NVIDIA_NIM_MAX_TOKENS jika output terlalu panjang."
+        ) from exc
+    except requests.exceptions.Timeout as exc:
+        raise TimeoutError(
+            f"Koneksi ke NVIDIA NIM timeout setelah {timeout_seconds} detik."
+        ) from exc
 
     # Cek status HTTP Response untuk mempermudah analisa jika API Key mati/salah model ID.
     if response.status_code != 200:
@@ -422,8 +452,8 @@ def build_ai_prompt(user_input, point_config, count_config, content_type="quiz")
             f"- Untuk soal PG, isi 'kunci_jawaban' dengan huruf opsi yang benar.\n"
             f"- Untuk soal esai, biarkan 'kunci_jawaban' kosong.\n"
             f"- Setiap butir wajib memiliki properti 'penjelasan'.\n"
-            f"- Penjelasan harus menerangkan mengapa jawaban itu benar.\n"
-            f"- Khusus soal matematika/angka, penjelasan wajib memuat langkah hitung yang ringkas namun jelas sampai hasil akhir.\n"
+            f"- Penjelasan harus ringkas, cukup 1-2 kalimat yang menerangkan mengapa jawaban itu benar.\n"
+            f"- Khusus soal matematika/angka, penjelasan cukup memuat langkah hitung inti sampai hasil akhir.\n"
         )
 
     return (

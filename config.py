@@ -13,6 +13,8 @@ def read_env(name, default=""):
 
 NVIDIA_NIM_API_KEY = read_env("NVIDIA_NIM_API_KEY")
 NVIDIA_NIM_BASE_URL = read_env("NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+NVIDIA_NIM_TIMEOUT_SECONDS = read_env("NVIDIA_NIM_TIMEOUT_SECONDS", "240")
+NVIDIA_NIM_MAX_TOKENS = read_env("NVIDIA_NIM_MAX_TOKENS", "8192")
 MODEL_NAME = read_env("MODEL_NAME", "nvidia/nemotron-3-ultra-550b-a55b")
 TELEGRAM_BOT_TOKEN = read_env("TELEGRAM_BOT_TOKEN")
 TELEGRAM_WEBHOOK_SECRET = read_env("TELEGRAM_WEBHOOK_SECRET")

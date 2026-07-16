@@ -157,6 +157,8 @@ Create a local `.env` file or configure these values in Vercel:
 
 - `NVIDIA_NIM_API_KEY`
 - `NVIDIA_NIM_BASE_URL` — optional, default: `https://integrate.api.nvidia.com/v1`
+- `NVIDIA_NIM_TIMEOUT_SECONDS` — optional, default: `240`
+- `NVIDIA_NIM_MAX_TOKENS` — optional, default: `8192`
 - `MODEL_NAME` — optional, default: `nvidia/nemotron-3-ultra-550b-a55b`
 - `TELEGRAM_BOT_TOKEN` — required only for Telegram bot usage
 - `TELEGRAM_WEBHOOK_SECRET` — optional but strongly recommended for webhook security
@@ -168,6 +170,7 @@ Create a local `.env` file or configure these values in Vercel:
 - `CRON_SECRET`
 
 For NVIDIA hosted endpoints, use `https://integrate.api.nvidia.com/v1` as the base URL. The app also accepts `https://integrate.api.nvidia.com` and will append `/v1` automatically.
+If NVIDIA NIM times out on Vercel, increase `NVIDIA_NIM_TIMEOUT_SECONDS` or ask for fewer questions per generation request.
 
 ## Google OAuth setup for the website
 
