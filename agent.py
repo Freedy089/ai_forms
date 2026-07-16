@@ -533,6 +533,40 @@ def validate_question_counts(questions, count_config):
             f"Jumlah soal esai tidak sesuai. Diminta {count_config['esai']}, tetapi AI membuat {actual_esai}."
         )
 
+
+def reconcile_question_counts(questions, count_config):
+    """Memangkas soal ekstra per tipe, tetapi tetap gagal jika jumlahnya kurang."""
+    requested_pg = count_config["pg"]
+    requested_esai = count_config["esai"]
+    actual_pg = sum(1 for question in questions if question["tipe"] == "pg")
+    actual_esai = sum(1 for question in questions if question["tipe"] == "esai")
+
+    if requested_pg is not None and actual_pg < requested_pg:
+        raise ValueError(
+            f"Jumlah soal PG tidak sesuai. Diminta {requested_pg}, tetapi AI membuat {actual_pg}."
+        )
+    if requested_esai is not None and actual_esai < requested_esai:
+        raise ValueError(
+            f"Jumlah soal esai tidak sesuai. Diminta {requested_esai}, tetapi AI membuat {actual_esai}."
+        )
+
+    kept_questions = []
+    kept_pg = 0
+    kept_esai = 0
+    for question in questions:
+        question_type = question["tipe"]
+        if question_type == "pg" and requested_pg is not None:
+            if kept_pg >= requested_pg:
+                continue
+            kept_pg += 1
+        elif question_type == "esai" and requested_esai is not None:
+            if kept_esai >= requested_esai:
+                continue
+            kept_esai += 1
+        kept_questions.append(question)
+
+    return kept_questions
+
 def build_batch_user_prompt(user_input, batch_count_config, batch_index, total_batches):
     batch_parts = []
     if batch_count_config["pg"]:
@@ -591,7 +625,9 @@ def generate_single_batch_quiz_data(user_input, point_config, count_config, cont
             continue
 
         try:
+            questions = reconcile_question_counts(questions, count_config)
             validate_question_counts(questions, count_config)
+            quiz_data["soal"] = questions
             return quiz_data, questions
         except ValueError as exc:
             last_error = exc
@@ -621,6 +657,7 @@ def generate_quiz_data(user_input, point_config, count_config, content_type="qui
             batch_title = quiz_data.get("judul", "Survey" if content_type == "survey" else "Quiz")
         all_questions.extend(questions)
 
+    all_questions = reconcile_question_counts(all_questions, count_config)
     validate_question_counts(all_questions, count_config)
     return {"judul": batch_title, "soal": all_questions}, all_questions
 
