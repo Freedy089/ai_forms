@@ -74,7 +74,21 @@ def build_nvidia_nim_chat_url():
     base_url = (config.NVIDIA_NIM_BASE_URL or "").strip().rstrip("/")
     if not base_url:
         raise ValueError("NVIDIA_NIM_BASE_URL belum diatur.")
+
+    if base_url.endswith("/chat/completions"):
+        return base_url
+    if base_url == "https://integrate.api.nvidia.com":
+        base_url = f"{base_url}/v1"
     return f"{base_url}/chat/completions"
+
+
+def build_nvidia_nim_model_name():
+    model_name = (config.MODEL_NAME or "").strip()
+    if model_name == "nemotron-3-ultra-550b-a55b":
+        return "nvidia/nemotron-3-ultra-550b-a55b"
+    if not model_name:
+        return "nvidia/nemotron-3-ultra-550b-a55b"
+    return model_name
 
 
 def call_nvidia_nim(user_prompt):
@@ -88,7 +102,7 @@ def call_nvidia_nim(user_prompt):
     }
 
     data = {
-        "model": config.MODEL_NAME,
+        "model": build_nvidia_nim_model_name(),
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
@@ -96,11 +110,15 @@ def call_nvidia_nim(user_prompt):
         "temperature": 0.3  # Diturunkan agar output AI konsisten mengikuti format JSON
     }
 
-    response = requests.post(build_nvidia_nim_chat_url(), headers=headers, json=data, timeout=120)
+    chat_url = build_nvidia_nim_chat_url()
+    response = requests.post(chat_url, headers=headers, json=data, timeout=120)
 
     # Cek status HTTP Response untuk mempermudah analisa jika API Key mati/salah model ID.
     if response.status_code != 200:
-        raise Exception(f"API NVIDIA NIM Error [{response.status_code}]: {response.text}")
+        raise Exception(
+            f"API NVIDIA NIM Error [{response.status_code}] "
+            f"di {chat_url} untuk model {data['model']}: {response.text}"
+        )
 
     try:
         res_json = response.json()

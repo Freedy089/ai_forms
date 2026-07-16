@@ -157,7 +157,7 @@ Create a local `.env` file or configure these values in Vercel:
 
 - `NVIDIA_NIM_API_KEY`
 - `NVIDIA_NIM_BASE_URL` — optional, default: `https://integrate.api.nvidia.com/v1`
-- `MODEL_NAME` — optional, default: `nemotron-3-ultra-550b-a55b`
+- `MODEL_NAME` — optional, default: `nvidia/nemotron-3-ultra-550b-a55b`
 - `TELEGRAM_BOT_TOKEN` — required only for Telegram bot usage
 - `TELEGRAM_WEBHOOK_SECRET` — optional but strongly recommended for webhook security
 - `GOOGLE_CLIENT_SECRET_JSON`
@@ -166,6 +166,8 @@ Create a local `.env` file or configure these values in Vercel:
 - `APP_SECRET`
 - `JOB_TTL_SECONDS` — optional, default: `3600`
 - `CRON_SECRET`
+
+For NVIDIA hosted endpoints, use `https://integrate.api.nvidia.com/v1` as the base URL. The app also accepts `https://integrate.api.nvidia.com` and will append `/v1` automatically.
 
 ## Google OAuth setup for the website
 
