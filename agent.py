@@ -27,6 +27,7 @@ Aturan Pembuatan Konten:
 
 PENTING: Anda HARUS merespon dalam format JSON MURNI di dalam blok markdown ```json ... ``` agar data aman dibaca sistem.
 Jangan memberikan teks deskripsi tambahan di luar blok JSON tersebut.
+Gunakan nama field persis dalam Bahasa Indonesia: "judul" dan "soal". Jangan gunakan "title", "questions", "items", atau nama field lain untuk struktur utama.
 
 Struktur JSON harus persis seperti ini:
 {
@@ -161,6 +162,49 @@ def parse_json_relaxed(text_output):
             first_brace = cleaned_text.find("{", first_brace + 1)
 
     raise json.JSONDecodeError("Tidak ditemukan object JSON valid.", cleaned_text, 0)
+
+
+def shorten_for_error(value, max_length=700):
+    text = normalize_whitespace(value)
+    if len(text) <= max_length:
+        return text
+    return f"{text[:max_length]}..."
+
+
+def coerce_quiz_data_schema(quiz_data):
+    """Menerima variasi key umum dari model, lalu mengubahnya ke schema internal."""
+    if isinstance(quiz_data, list):
+        return {"judul": "Quiz", "soal": quiz_data}
+
+    if not isinstance(quiz_data, dict):
+        raise ValueError("Format JSON dari AI harus berupa object dengan field 'judul' dan 'soal'.")
+
+    title = (
+        quiz_data.get("judul")
+        or quiz_data.get("title")
+        or quiz_data.get("nama")
+        or quiz_data.get("form_title")
+        or "Quiz"
+    )
+    questions = quiz_data.get("soal")
+
+    for key in ("questions", "pertanyaan", "items", "butir", "data"):
+        if questions is None and isinstance(quiz_data.get(key), list):
+            questions = quiz_data.get(key)
+
+    if questions is None and isinstance(quiz_data.get("quiz"), dict):
+        nested_quiz = quiz_data["quiz"]
+        title = nested_quiz.get("judul") or nested_quiz.get("title") or title
+        questions = nested_quiz.get("soal") or nested_quiz.get("questions")
+
+    if questions is None:
+        available_keys = ", ".join(sorted(str(key) for key in quiz_data.keys())) or "(kosong)"
+        raise ValueError(
+            "AI mengembalikan JSON tetapi tidak ada field 'soal'. "
+            f"Field yang ada: {available_keys}."
+        )
+
+    return {"judul": str(title).strip() or "Quiz", "soal": questions}
 
 def extract_requested_points(user_prompt):
     """Mengambil poin default dan poin khusus per tipe soal dari instruksi user."""
@@ -403,21 +447,33 @@ def normalize_questions(questions, point_config, content_type="quiz"):
                 f"Format soal nomor {index} tidak valid. Setiap butir soal harus berupa object JSON."
             )
 
-        question_type = str(question.get('tipe', 'esai')).strip().lower()
+        question_type = str(question.get('tipe') or question.get('type') or question.get('jenis') or 'esai').strip().lower()
+        if question_type in {"multiple_choice", "multiple-choice", "mcq", "pilihan ganda", "choice"}:
+            question_type = "pg"
+        if question_type in {"essay", "uraian"}:
+            question_type = "esai"
+
         fallback_points = point_config["pg"] if question_type == "pg" else point_config["esai"]
-        raw_choices = question.get('pilihan') or []
+        raw_choices = question.get('pilihan') or question.get('options') or question.get('choices') or []
         if isinstance(raw_choices, str):
             raw_choices = [choice.strip() for choice in re.split(r'\n|;', raw_choices) if choice.strip()]
         elif not isinstance(raw_choices, list):
             raw_choices = []
 
+        raw_points = question.get('poin', question.get('points', fallback_points))
+        try:
+            points = int(raw_points)
+        except (TypeError, ValueError):
+            point_match = re.search(r'\d+', str(raw_points or ''))
+            points = int(point_match.group(0)) if point_match else fallback_points
+
         normalized_question = {
             'tipe': question_type,
-            'pertanyaan': str(question.get('pertanyaan', '')).strip(),
+            'pertanyaan': str(question.get('pertanyaan') or question.get('question') or question.get('text') or '').strip(),
             'pilihan': [str(choice).strip() for choice in raw_choices if str(choice).strip()],
-            'kunci_jawaban': str(question.get('kunci_jawaban', '')).strip(),
-            'poin': max(1, int(question.get('poin', fallback_points))),
-            'penjelasan': str(question.get('penjelasan', '')).strip()
+            'kunci_jawaban': str(question.get('kunci_jawaban') or question.get('answer') or question.get('jawaban') or '').strip(),
+            'poin': max(1, points),
+            'penjelasan': str(question.get('penjelasan') or question.get('explanation') or question.get('rationale') or '').strip()
         }
         if content_type == "survey":
             normalized_question['kunci_jawaban'] = ""
@@ -484,7 +540,25 @@ def generate_single_batch_quiz_data(user_input, point_config, count_config, cont
                 f"Pastikan seluruh object JSON selesai ditutup sampai kurung kurawal terakhir."
             )
             continue
-        questions = normalize_questions(quiz_data['soal'], point_config, content_type)
+
+        try:
+            quiz_data = coerce_quiz_data_schema(quiz_data)
+            questions = normalize_questions(quiz_data["soal"], point_config, content_type)
+        except ValueError as exc:
+            last_error = exc
+            if attempt == MAX_AI_ATTEMPTS - 1:
+                raise ValueError(
+                    f"AI mengembalikan JSON dengan struktur yang tidak sesuai: {exc} "
+                    f"Cuplikan respons: {shorten_for_error(ai_response)}"
+                ) from exc
+            current_prompt = (
+                f"{user_input.strip()}\n\n"
+                f"Perbaiki output sebelumnya. JSON Anda harus memiliki field utama 'judul' dan 'soal'. "
+                f"Field 'soal' wajib berupa array object soal. "
+                f"Gunakan hanya schema ini: {{\"judul\":\"...\",\"soal\":[{{\"tipe\":\"pg\",\"pertanyaan\":\"...\",\"pilihan\":[\"A. ...\"],\"kunci_jawaban\":\"A\",\"poin\":1,\"penjelasan\":\"...\"}}]}}. "
+                f"Jangan gunakan field 'questions', 'items', atau teks tambahan."
+            )
+            continue
 
         try:
             validate_question_counts(questions, count_config)
