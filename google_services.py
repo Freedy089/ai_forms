@@ -64,19 +64,25 @@ def get_google_creds():
     return creds
 
 def resolve_correct_option(question):
-    """Mengubah kunci jawaban huruf menjadi teks opsi penuh untuk Google Forms."""
-    answer_key = str(question.get('kunci_jawaban', '')).strip()
+    """Mengubah kunci jawaban huruf menjadi teks opsi penuh."""
+    answer_key = clean_display_text(
+        question.get('kunci_jawaban', '')
+    )
     options = question.get('pilihan') or []
+
     if not answer_key or not options:
         return None
 
-    normalized_key = answer_key.upper().strip()
+    normalized_key = answer_key.upper()
+
     for option in options:
-        cleaned_option = option.strip()
+        cleaned_option = clean_display_text(option)
+
         if cleaned_option.upper() == normalized_key:
             return cleaned_option
 
         prefix = cleaned_option.split('.', 1)[0].split(')', 1)[0].strip().upper()
+
         if prefix == normalized_key:
             return cleaned_option
 
@@ -103,7 +109,7 @@ def create_google_form(title, questions_list, creds=None, as_quiz=True):
     creds = creds or get_google_creds()
     form_service = build('forms', 'v1', credentials=creds)
     
-    clean_title = (title or "").strip() or "Quiz"
+    clean_title = clean_display_text(title) or "Quiz"
     form_body = {
         'info': {
             'title': clean_title,
@@ -126,25 +132,21 @@ def create_google_form(title, questions_list, creds=None, as_quiz=True):
             }
         })
 
-    for index, q in enumerate(questions_list):
-        question_item = {
-            'required': True
-        }
-        if as_quiz:
-            question_item['grading'] = build_grading(q)
-        
-        if q['tipe'].lower() == 'esai':
-            question_item['textQuestion'] = {'paragraph': True}
-        else:
-            question_item['choiceQuestion'] = {
-                'type': 'RADIO',
-                'options': [{'value': opt} for opt in q['pilihan']]
-            }
+    if q['tipe'].lower() == 'esai':
+    question_item['textQuestion'] = {'paragraph': True}
+else:
+    question_item['choiceQuestion'] = {
+        'type': 'RADIO',
+        'options': [
+            {'value': clean_display_text(opt)}
+            for opt in q['pilihan']
+        ]
+    }
             
         item = {
             'createItem': {
                 'item': {
-                    'title': q['pertanyaan'],
+                    'title': clean_display_text(q['pertanyaan']),
                     'questionItem': {
                         'question': question_item
                     }
