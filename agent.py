@@ -466,58 +466,133 @@ def build_ai_prompt(user_input, point_config, count_config, content_type="quiz")
     )
 
 def normalize_questions(questions, point_config, content_type="quiz"):
-    """Menjamin setiap butir soal punya bentuk data yang konsisten untuk downstream."""
+    """Menjamin setiap butir soal punya bentuk data yang konsisten."""
     if not isinstance(questions, list):
-        raise ValueError("Format 'soal' dari AI tidak valid. Data soal harus berupa array/list.")
+        raise ValueError(
+            "Format 'soal' dari AI tidak valid. "
+            "Data soal harus berupa array/list."
+        )
 
     normalized_questions = []
+
     for index, question in enumerate(questions, 1):
         if not isinstance(question, dict):
             raise ValueError(
-                f"Format soal nomor {index} tidak valid. Setiap butir soal harus berupa object JSON."
+                f"Format soal nomor {index} tidak valid."
             )
 
-        question_type = str(question.get('tipe') or question.get('type') or question.get('jenis') or 'esai').strip().lower()
-        if question_type in {"multiple_choice", "multiple-choice", "mcq", "pilihan ganda", "choice"}:
+        question_type = str(
+            question.get('tipe')
+            or question.get('type')
+            or question.get('jenis')
+            or 'esai'
+        ).strip().lower()
+
+        if question_type in {
+            "multiple_choice", "multiple-choice",
+            "mcq", "pilihan ganda", "choice"
+        }:
             question_type = "pg"
+
         if question_type in {"essay", "uraian"}:
             question_type = "esai"
 
-        fallback_points = point_config["pg"] if question_type == "pg" else point_config["esai"]
-        raw_choices = question.get('pilihan') or question.get('options') or question.get('choices') or []
+        fallback_points = (
+            point_config["pg"]
+            if question_type == "pg"
+            else point_config["esai"]
+        )
+
+        raw_choices = (
+            question.get('pilihan')
+            or question.get('options')
+            or question.get('choices')
+            or []
+        )
+
         if isinstance(raw_choices, str):
-            raw_choices = [choice.strip() for choice in re.split(r'\n|;', raw_choices) if choice.strip()]
+            raw_choices = re.split(r'\n|;', raw_choices)
         elif not isinstance(raw_choices, list):
             raw_choices = []
 
-        raw_points = question.get('poin', question.get('points', fallback_points))
+        # Bersihkan semua teks sebelum diteruskan.
+        clean_question = normalize_whitespace(
+            question.get('pertanyaan')
+            or question.get('question')
+            or question.get('text')
+            or ''
+        )
+
+        clean_choices = [
+            normalize_whitespace(choice)
+            for choice in raw_choices
+            if normalize_whitespace(choice)
+        ]
+
+        clean_answer = normalize_whitespace(
+            question.get('kunci_jawaban')
+            or question.get('answer')
+            or question.get('jawaban')
+            or ''
+        )
+
+        clean_explanation = normalize_whitespace(
+            question.get('penjelasan')
+            or question.get('explanation')
+            or question.get('rationale')
+            or ''
+        )
+
+        raw_points = question.get(
+            'poin',
+            question.get('points', fallback_points)
+        )
+
         try:
             points = int(raw_points)
         except (TypeError, ValueError):
             point_match = re.search(r'\d+', str(raw_points or ''))
-            points = int(point_match.group(0)) if point_match else fallback_points
+            points = (
+                int(point_match.group(0))
+                if point_match else fallback_points
+            )
 
         normalized_question = {
             'tipe': question_type,
-            'pertanyaan': str(question.get('pertanyaan') or question.get('question') or question.get('text') or '').strip(),
-            'pilihan': [str(choice).strip() for choice in raw_choices if str(choice).strip()],
-            'kunci_jawaban': str(question.get('kunci_jawaban') or question.get('answer') or question.get('jawaban') or '').strip(),
+            'pertanyaan': clean_question,
+            'pilihan': clean_choices,
+            'kunci_jawaban': clean_answer,
             'poin': max(1, points),
-            'penjelasan': str(question.get('penjelasan') or question.get('explanation') or question.get('rationale') or '').strip()
+            'penjelasan': clean_explanation
         }
+
         if content_type == "survey":
             normalized_question['kunci_jawaban'] = ""
             normalized_question['poin'] = 1
+
         if not normalized_question['penjelasan']:
             if content_type == "survey":
-                normalized_question['penjelasan'] = "Pertanyaan ini digunakan untuk mengumpulkan pendapat atau informasi responden."
+                normalized_question['penjelasan'] = (
+                    "Pertanyaan ini digunakan untuk "
+                    "mengumpulkan informasi responden."
+                )
             elif question_type == "esai":
-                normalized_question['penjelasan'] = "Gunakan jawaban yang memuat konsep utama yang diminta pada soal."
+                normalized_question['penjelasan'] = (
+                    "Gunakan jawaban yang memuat konsep utama."
+                )
             else:
-                normalized_question['penjelasan'] = "Jawaban ini dipilih karena paling sesuai dengan konsep yang diuji pada soal."
-        if not normalized_question['pertanyaan']:
-            raise ValueError(f"Soal nomor {index} tidak memiliki teks pertanyaan.")
+                normalized_question['penjelasan'] = (
+                    "Jawaban ini paling sesuai dengan "
+                    "konsep yang diuji."
+                )
+
+        if not clean_question:
+            raise ValueError(
+                f"Soal nomor {index} tidak memiliki teks pertanyaan."
+            )
+
         normalized_questions.append(normalized_question)
+
     return normalized_questions
 
 def validate_question_counts(questions, count_config):
