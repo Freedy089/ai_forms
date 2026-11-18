@@ -108,7 +108,7 @@ def create_google_form(title, questions_list, creds=None, as_quiz=True):
     """Membuat Google Form quiz atau survey berdasarkan campuran PG dan Esai dari AI."""
     creds = creds or get_google_creds()
     form_service = build('forms', 'v1', credentials=creds)
-    
+
     clean_title = clean_display_text(title) or "Quiz"
     form_body = {
         'info': {
@@ -118,7 +118,7 @@ def create_google_form(title, questions_list, creds=None, as_quiz=True):
     }
     form = form_service.forms().create(body=form_body).execute()
     form_id = form['formId']
-    
+
     requests = []
     if as_quiz:
         requests.append({
@@ -132,17 +132,23 @@ def create_google_form(title, questions_list, creds=None, as_quiz=True):
             }
         })
 
-    if q['tipe'].lower() == 'esai':
-    question_item['textQuestion'] = {'paragraph': True}
-else:
-    question_item['choiceQuestion'] = {
-        'type': 'RADIO',
-        'options': [
-            {'value': clean_display_text(opt)}
-            for opt in q['pilihan']
-        ]
-    }
-            
+    for index, q in enumerate(questions_list):
+        question_item = {'required': True}
+
+        if as_quiz:
+            question_item['grading'] = build_grading(q)
+
+        if q['tipe'].lower() == 'esai':
+            question_item['textQuestion'] = {'paragraph': True}
+        else:
+            question_item['choiceQuestion'] = {
+                'type': 'RADIO',
+                'options': [
+                    {'value': clean_display_text(opt)}
+                    for opt in q['pilihan']
+                ]
+            }
+
         item = {
             'createItem': {
                 'item': {
@@ -155,8 +161,10 @@ else:
             }
         }
         requests.append(item)
-        
-    form_service.forms().batchUpdate(formId=form_id, body={'requests': requests}).execute()
+
+    form_service.forms().batchUpdate(
+        formId=form_id, body={'requests': requests}
+    ).execute()
     return {
         'form_id': form_id,
         'edit_url': f"https://docs.google.com/forms/d/{form_id}/edit",
