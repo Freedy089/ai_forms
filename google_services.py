@@ -1,6 +1,7 @@
 # google_services.py
 import os
 import json
+import re
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -12,6 +13,17 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive'
 ]
 
+def clean_option(text):
+    # Bait/baris baru dalam opsi diganti " / " agar pantun/puisi tetap terbaca
+    parts = [p.strip() for p in re.split(r'[\r\n\u2028\u2029]+', str(text or '')) if p.strip()]
+    return re.sub(r'[ \t]+', ' ', ' / '.join(parts))
+
+
+def sanitize_question(q):
+    q = dict(q)
+    q['pertanyaan'] = str(q.get('pertanyaan') or '').strip()
+    q['pilihan'] = [clean_option(o) for o in (q.get('pilihan') or []) if clean_option(o)]
+    return q
 
 def has_shared_google_creds():
     token_payload = config.GOOGLE_TOKEN_JSON.strip()
