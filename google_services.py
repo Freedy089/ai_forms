@@ -1,7 +1,6 @@
 # google_services.py
 import os
 import json
-import re
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -12,6 +11,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/forms',
     'https://www.googleapis.com/auth/drive'
 ]
+
 
 def has_shared_google_creds():
     token_payload = config.GOOGLE_TOKEN_JSON.strip()
