@@ -134,7 +134,7 @@ def create_google_form(title, questions_list, creds=None, as_quiz=True):
             }
         })
 
-questions_list = [sanitize_question(q) for q in questions_list]
+    questions_list = [sanitize_question(q) for q in questions_list]
 
     for index, q in enumerate(questions_list):
         question_item = {
