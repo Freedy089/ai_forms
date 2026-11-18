@@ -12,6 +12,10 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive'
 ]
 
+def clean_display_text(text):
+    if text is None:
+        return ""
+    return " ".join(str(text).split())
 
 def has_shared_google_creds():
     token_payload = config.GOOGLE_TOKEN_JSON.strip()
